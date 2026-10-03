@@ -1,0 +1,20 @@
+"""Template section names shared by all role and debrief templates."""
+
+COVER_TASK_TAG = "cover_task"
+OPTIONS_TAG = "options"
+TARGET_TAG = "target"
+PROTECTED_TAG = "protected"
+ATTEMPT_LOG_TAG = "attempt_log"
+MESSAGE_TAG = "message"
+DEBRIEF_OUTCOME_SECTION_TAG = "debrief_outcome_section"
+
+TEMPLATE_TAG_NAMES = (
+    COVER_TASK_TAG,
+    OPTIONS_TAG,
+    TARGET_TAG,
+    PROTECTED_TAG,
+    ATTEMPT_LOG_TAG,
+    MESSAGE_TAG,
+    DEBRIEF_OUTCOME_SECTION_TAG,
+)
+

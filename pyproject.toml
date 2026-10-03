@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simmons"
+version = "0.1.0"
+description = "Framework for experiments on covert signalling between LLMs"
+requires-python = ">=3.11"
+dependencies = ["pydantic", "jsonschema", "openai"]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[project.scripts]
+simmons = "simmons.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["simmons*"]
+
+[tool.pytest.ini_options]
+addopts = "-m 'not live'"
+markers = ["live: opt-in tests that call a real provider"]
