@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spend · SimmonsSwarm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+/* Theme: ?theme=light|dark wins, then the saved choice, then the system setting. */
+(function () {
+  var root = document.documentElement;
+  function apply(t) {
+    if (t === "light" || t === "dark") root.setAttribute("data-theme", t);
+    else { root.removeAttribute("data-theme"); t = "auto"; }
+    var b = document.getElementById("theme-btn");
+    if (b) b.textContent = "Theme: " + t;
+  }
+  var q = null, saved = null;
+  try { q = new URLSearchParams(location.search).get("theme"); } catch (e) {}
+  try { saved = localStorage.getItem("simmons-theme"); } catch (e) {}
+  var start = q || saved || "auto";
+  apply(start);
+  window.cycleTheme = function () {
+    var cur = root.getAttribute("data-theme") || "auto";
+    var next = cur === "auto" ? "light" : cur === "light" ? "dark" : "auto";
+    apply(next);
+    try { localStorage.setItem("simmons-theme", next); } catch (e) {}
+  };
+  document.addEventListener("DOMContentLoaded", function () { apply(root.getAttribute("data-theme") || "auto"); });
+})();
+</script>
+<style>
+/* ===== SimmonsSwarm diagram set: shared base (keep identical across pages) ===== */
+:root {
+  --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --bg: #f6f4ef; --panel: #ffffff; --panel-2: #f0eee8;
+  --ink: #1b1f24; --ink-2: #3a414b; --muted: #6b7380; --line: #d9d5cc;
+  --team: #0f7f73; --team-soft: rgba(15, 127, 115, 0.10);
+  --guard: #c4362c; --guard-soft: rgba(196, 54, 44, 0.09);
+  --judge: #6d4fd6; --judge-soft: rgba(109, 79, 214, 0.10);
+  --plain: #5a6577; --plain-soft: rgba(90, 101, 119, 0.10);
+  --hit: #1a7f37; --hit-soft: rgba(26, 127, 55, 0.10);
+  --miss: #9a6700; --miss-soft: rgba(154, 103, 0, 0.10);
+  --catch: #c4362c;
+  --lamp: #e8a317; --lamp-soft: rgba(232, 163, 23, 0.14); --lamp-ink: #8a5a00;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1015; --panel: #151a21; --panel-2: #1b212a;
+    --ink: #e8ebf0; --ink-2: #c3c9d3; --muted: #8b95a5; --line: #2a313c;
+    --team: #35c4b2; --team-soft: rgba(53, 196, 178, 0.10);
+    --guard: #f0635a; --guard-soft: rgba(240, 99, 90, 0.10);
+    --judge: #a78bfa; --judge-soft: rgba(167, 139, 250, 0.12);
+    --plain: #9aa6b8; --plain-soft: rgba(154, 166, 184, 0.10);
+    --hit: #4ac15e; --hit-soft: rgba(74, 193, 94, 0.10);
+    --miss: #e0a43a; --miss-soft: rgba(224, 164, 58, 0.10);
+    --catch: #f0635a;
+    --lamp: #ffbf3c; --lamp-soft: rgba(255, 191, 60, 0.12); --lamp-ink: #ffbf3c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1015; --panel: #151a21; --panel-2: #1b212a;
+  --ink: #e8ebf0; --ink-2: #c3c9d3; --muted: #8b95a5; --line: #2a313c;
+  --team: #35c4b2; --team-soft: rgba(53, 196, 178, 0.10);
+  --guard: #f0635a; --guard-soft: rgba(240, 99, 90, 0.10);
+  --judge: #a78bfa; --judge-soft: rgba(167, 139, 250, 0.12);
+  --plain: #9aa6b8; --plain-soft: rgba(154, 166, 184, 0.10);
+  --hit: #4ac15e; --hit-soft: rgba(74, 193, 94, 0.10);
+  --miss: #e0a43a; --miss-soft: rgba(224, 164, 58, 0.10);
+  --catch: #f0635a;
+  --lamp: #ffbf3c; --lamp-soft: rgba(255, 191, 60, 0.12); --lamp-ink: #ffbf3c;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 16px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--team); }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 72px; }
+@media (max-width: 640px) { .wrap { padding: 0 16px 48px; } }
+
+/* top navigation */
+.topnav { display: flex; align-items: center; gap: 10px 18px; flex-wrap: wrap; padding: 14px 0; margin-bottom: 26px; border-bottom: 1px solid var(--line); }
+.topnav .brand { font: 700 15px var(--sans); color: var(--ink); text-decoration: none; white-space: nowrap; }
+.topnav .brand span { color: var(--muted); font-weight: 500; }
+.navlinks { display: flex; gap: 4px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.navlinks::-webkit-scrollbar { display: none; }
+.navlinks a { font: 500 13.5px var(--sans); color: var(--ink-2); text-decoration: none; padding: 5px 10px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; }
+.navlinks a:hover { border-color: var(--line); }
+.navlinks a[aria-current="page"] { background: var(--panel); border-color: var(--line); color: var(--ink); font-weight: 600; }
+.navlinks a .n { font-family: var(--mono); color: var(--muted); margin-right: 5px; }
+#theme-btn { font: 500 12.5px var(--mono); color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; width: 17ch; white-space: nowrap; text-align: center; cursor: pointer; }
+@media (max-width: 760px) { .navlinks { order: 3; flex-basis: 100%; } }
+
+/* page header */
+header.page { margin-bottom: 22px; }
+h1 { font: 700 34px/1.12 var(--sans); letter-spacing: -0.01em; margin: 0 0 10px; }
+@media (max-width: 640px) { h1 { font-size: 28px; } }
+.lede { color: var(--ink-2); margin: 0; max-width: 760px; font-size: 16.5px; }
+.meta { margin: 10px 0 0; font: 500 12.5px var(--mono); color: var(--muted); }
+h2 { font: 700 21px/1.25 var(--sans); margin: 0 0 8px; }
+h3 { font: 700 16px/1.3 var(--sans); margin: 0 0 6px; }
+section { margin: 0 0 44px; }
+.sub { color: var(--muted); font-size: 14.5px; margin: 0 0 14px; max-width: 820px; }
+p { max-width: 820px; }
+code, .mono { font-family: var(--mono); font-size: 0.9em; }
+
+/* figures */
+figure.diagram { margin: 0 0 14px; padding: 16px 16px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; }
+.fig-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+figure.diagram svg { display: block; width: 100%; height: auto; }
+figcaption { color: var(--muted); font-size: 13.5px; margin: 8px 2px 0; max-width: 900px; }
+.scroll-hint { display: none; font: 500 12px var(--mono); color: var(--muted); margin: 0 0 6px; }
+@media (max-width: 760px) { .scroll-hint { display: block; } }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 13px; color: var(--ink-2); margin: 0 0 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
+.sw.team { background: var(--team); } .sw.guard { background: var(--guard); } .sw.judge { background: var(--judge); }
+.sw.plain { background: var(--plain); } .sw.lamp { background: var(--lamp); } .sw.ink { background: var(--ink-2); }
+.sw.hit { background: var(--hit); } .sw.miss { background: var(--miss); } .sw.catch { background: var(--catch); }
+.sw.iter { border: 1.5px dashed var(--muted); background: transparent; }
+.ln { width: 26px; height: 0; border-top: 2.2px solid var(--ink-2); display: inline-block; }
+.ln.ctl { border-top-style: dashed; }
+
+/* SVG vocabulary (shared with diagram.html) */
+.node { fill: var(--panel); stroke: var(--line); stroke-width: 2; }
+.node.team { stroke: var(--team); fill: var(--team-soft); }
+.node.guard { stroke: var(--guard); fill: var(--guard-soft); }
+.node.judge { stroke: var(--judge); fill: var(--judge-soft); }
+.node.plain { stroke: var(--plain); fill: var(--plain-soft); }
+.node.lamp { stroke: var(--lamp); fill: var(--lamp-soft); }
+.node.hit { stroke: var(--hit); fill: var(--hit-soft); }
+.node.miss { stroke: var(--miss); fill: var(--miss-soft); }
+.node.ink { stroke: var(--ink-2); fill: var(--panel); }
+.node.soft { stroke: var(--line); fill: var(--panel-2); stroke-width: 1.5; }
+.prompt { stroke-width: 1.6; stroke-dasharray: 6 5; fill: var(--panel); }
+.prompt.team { stroke: var(--team); } .prompt.guard { stroke: var(--guard); } .prompt.plain { stroke: var(--plain); }
+.t-id { font: 700 24px var(--mono); }
+.t-id.team { fill: var(--team); } .t-id.guard { fill: var(--guard); }
+.t-id.judge { fill: var(--judge); } .t-id.plain { fill: var(--plain); }
+.t-role { font: 600 15px var(--sans); fill: var(--ink); }
+.t-title { font: 600 14.5px var(--sans); fill: var(--ink); }
+.t-small { font: 12.5px var(--sans); fill: var(--muted); }
+.t-body { font: 13px var(--sans); fill: var(--ink-2); }
+.t-label { font: 500 12.5px var(--mono); fill: var(--ink-2); }
+.t-code { font: 500 12.5px var(--mono); fill: var(--ink); }
+.t-head { font: 700 12px var(--mono); letter-spacing: 0.08em; fill: var(--muted); }
+/* colour classes: after the type classes, and scoped to svg, so .c-* always beats .t-small and .t-label */
+svg .c-team { fill: var(--team); } svg .c-guard { fill: var(--guard); } svg .c-judge { fill: var(--judge); } svg .c-plain { fill: var(--plain); }
+svg .c-lamp { fill: var(--lamp-ink); } svg .c-hit { fill: var(--hit); } svg .c-miss { fill: var(--miss); } svg .c-catch { fill: var(--catch); }
+svg .c-muted { fill: var(--muted); } svg .c-ink { fill: var(--ink); }
+.wire { fill: none; stroke-width: 2.2; stroke: var(--ink-2); }
+.wire.team { stroke: var(--team); } .wire.guard { stroke: var(--guard); } .wire.judge { stroke: var(--judge); }
+.wire.plain { stroke: var(--plain); } .wire.hit { stroke: var(--hit); } .wire.miss { stroke: var(--miss); }
+.wire.lamp { stroke: var(--lamp); } .wire.muted { stroke: var(--muted); }
+.wire.ctl { stroke-dasharray: 6 5; stroke-width: 1.8; }
+.wire.never { stroke: var(--muted); stroke-dasharray: 2 5; stroke-linecap: round; stroke-width: 2; }
+.f-team { fill: var(--team); } .f-ink { fill: var(--ink-2); } .f-guard { fill: var(--guard); } .f-judge { fill: var(--judge); }
+.f-plain { fill: var(--plain); } .f-hit { fill: var(--hit); } .f-miss { fill: var(--miss); } .f-muted { fill: var(--muted); } .f-lamp { fill: var(--lamp); }
+.xdot { fill: var(--panel); stroke: var(--guard); stroke-width: 1.8; }
+.xmark { fill: none; stroke: var(--guard); stroke-width: 2.2; stroke-linecap: round; }
+.badge { stroke-width: 2; fill: var(--panel); }
+.badge.catch { fill: var(--guard-soft); stroke: var(--catch); } .badge.hit { stroke: var(--hit); } .badge.miss { stroke: var(--miss); }
+.t-badge { font: 700 14px var(--mono); letter-spacing: 0.06em; }
+.t-badge.catch { fill: var(--catch); } .t-badge.hit { fill: var(--hit); } .t-badge.miss { fill: var(--miss); }
+.junction { fill: var(--muted); }
+
+/* cards, tables, callouts */
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.cards.two { grid-template-columns: repeat(2, 1fr); }
+.cards.four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) { .cards.four { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 820px) { .cards, .cards.two { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .cards.four { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; border-top: 4px solid var(--line); }
+.card.team { border-top-color: var(--team); } .card.guard { border-top-color: var(--guard); } .card.judge { border-top-color: var(--judge); }
+.card.plain { border-top-color: var(--plain); } .card.lamp { border-top-color: var(--lamp); } .card.hit { border-top-color: var(--hit); }
+.card.miss { border-top-color: var(--miss); } .card.catch { border-top-color: var(--catch); }
+.card p { margin: 0 0 6px; color: var(--ink-2); font-size: 14.5px; }
+.card .k { font: 500 12.5px var(--mono); color: var(--muted); }
+.table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th { font: 600 12.5px var(--sans); color: var(--muted); background: var(--panel-2); }
+tbody tr:last-child td, tbody tr:last-child th { border-bottom: 0; }
+td.f, .fld { font: 500 12.5px var(--mono); color: var(--ink); white-space: nowrap; }
+.callout { margin: 14px 0 0; padding: 12px 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--line); color: var(--ink-2); font-size: 14.5px; max-width: 900px; }
+.callout b { color: var(--ink); }
+.callout.decided { border-left-color: var(--lamp); }
+.callout.open { border: 1px dashed var(--muted); border-left: 4px dashed var(--muted); }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font: 600 11.5px var(--mono); letter-spacing: 0.03em; white-space: nowrap; vertical-align: 1px; }
+.tag.decided { color: var(--lamp-ink); border: 1.5px solid var(--lamp); }
+.tag.open { color: var(--muted); border: 1.5px dashed var(--muted); }
+.tag.code { color: var(--ink-2); border: 1px solid var(--line); background: var(--panel-2); }
+pre.cmd { margin: 0; padding: 14px 16px; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; font: 13px/1.6 var(--mono); color: var(--ink); }
+pre.cmd .p { color: var(--muted); user-select: none; }
+pre.cmd .c { color: var(--muted); }
+pre.cmd .o { color: var(--ink-2); }
+pre.cmd .ok { color: var(--hit); } pre.cmd .bad { color: var(--catch); } pre.cmd .warn { color: var(--lamp-ink); }
+
+footer.pager { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 14px; margin-top: 8px; font-size: 13.5px; color: var(--muted); }
+footer.pager a { text-decoration: none; font-weight: 600; }
+footer.pager .src { flex-basis: 100%; font-size: 12.5px; }
+/* ===== end shared base ===== */
+
+/* page: spend */
+.ring { stroke-width: 2; }
+.ring.out { fill: var(--panel-2); stroke: var(--muted); stroke-dasharray: 6 5; }
+.ring.out.alt { fill: var(--panel); }
+.ring.code { fill: var(--panel-2); stroke: var(--lamp); }
+.ring.code.alt { fill: var(--panel); }
+.ring.core { fill: var(--lamp-soft); stroke: var(--lamp); }
+.track { fill: var(--panel-2); stroke: var(--line); stroke-width: 1; }
+.seg-settled { fill: var(--ink-2); }
+.seg-open { fill: var(--lamp-soft); stroke: var(--lamp); stroke-width: 1.5; }
+.seg-unres { fill: var(--miss); }
+.seg-next { fill: var(--guard-soft); stroke: var(--catch); stroke-width: 2; stroke-dasharray: 4 3; }
+.cap-line { stroke: var(--catch); stroke-width: 2.4; }
+.lens { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 3 4; }
+.leader { stroke: var(--muted); stroke-width: 1; }
+.node.catch { stroke: var(--catch); fill: var(--guard-soft); }
+.sw.open { background: var(--lamp-soft); border: 1.5px solid var(--lamp); }
+.sw.next { background: transparent; border: 1.5px dashed var(--catch); }
+.sw.out { background: var(--panel-2); border: 1.5px dashed var(--muted); }
+.sw.code { background: var(--panel); border: 1.5px solid var(--lamp); }
+pre.cmd.journal { font-size: 12.5px; }
+.proof .card h3 { font: 700 13px var(--mono); letter-spacing: 0.04em; margin: 0 0 4px; color: var(--ink); }
+.proof .card .how { font-size: 13.5px; color: var(--muted); margin: 0; }
+.proof .card .k { display: block; margin-top: 8px; }
+.formula { margin: 14px 0 0; padding: 12px 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); font: 13.5px/1.6 var(--mono); color: var(--ink); overflow-x: auto; }
+.formula .c { color: var(--muted); }
+/* colour helpers must beat .t-label / .t-small fills */
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="ah-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-ink"/></marker>
+    <marker id="ah-team" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-team"/></marker>
+    <marker id="ah-guard" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-guard"/></marker>
+    <marker id="ah-judge" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-judge"/></marker>
+    <marker id="ah-plain" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-plain"/></marker>
+    <marker id="ah-hit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-hit"/></marker>
+    <marker id="ah-miss" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-miss"/></marker>
+    <marker id="ah-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-muted"/></marker>
+    <marker id="ah-lamp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-lamp"/></marker>
+  </defs>
+</svg>
+<div class="wrap">
+
+<nav class="topnav" aria-label="Diagram set">
+  <a class="brand" href="index.html">SimmonsSwarm <span>diagrams</span></a>
+  <div class="navlinks">
+    <a href="index.html"><span class="n">0</span>Map</a>
+    <a href="overview.html"><span class="n">1</span>Game</a>
+    <a href="episode.html"><span class="n">2</span>Run</a>
+    <a href="visibility.html"><span class="n">3</span>Visibility</a>
+    <a href="records.html"><span class="n">4</span>Records</a>
+    <a href="spend.html" aria-current="page"><span class="n">5</span>Spend</a>
+    <a href="matrix.html"><span class="n">6</span>Matrices</a>
+    <a href="usage.html"><span class="n">7</span>Usage</a>
+    <a href="build.html"><span class="n">8</span>Build</a>
+  </div>
+  <button id="theme-btn" type="button" onclick="cycleTheme()">Theme: auto</button>
+</nav>
+
+<header class="page">
+  <h1>Spend: the circuit breaker</h1>
+  <p class="lede">A 200-episode run of the base story makes about 600 role calls (the cell or the correspondent writes, the monitor reads, R names a city), plus an exit interview of S after each of the cell's 140 stories. Every one of them reserves its worst case before it is sent. Code caps a run at $20 and a matrix at $100. OpenRouter's key limit and prepaid credit sit outside the code, as backstops.</p>
+  <p class="meta">SPEC §19, §12.9, §15.1, §15.4, §9.1, §9.5, §14.8 · BUILDPLAN T02e, T08 (v1.0); T09, T11, T20 (v1.1) · EVALUATION E-06, E-14, E-15, E-16, E-33. In v1.0: the breaker, the journal, real prices and the key-limit cap. <code>budget --audit</code>, <code>resume</code> and the matrix ceiling's enforcement arrive in v1.1.</p>
+</header>
+
+<section>
+  <h2>One call attempt through the breaker</h2>
+  <p class="sub">The runner calls <code>spend.Breaker</code> around every attempt: <code>reserve</code> before it leaves,
+  then <code>settle</code> or <code>unresolved</code> when it returns. Preflight calls and retries go through it too.</p>
+  <div class="legend">
+    <span><i class="sw ink"></i>harness step</span>
+    <span><i class="sw hit"></i>settled</span>
+    <span><i class="sw miss"></i>unresolved</span>
+    <span><i class="sw catch"></i>trips the breaker</span>
+    <span><i class="ln"></i>data</span>
+    <span><i class="ln ctl"></i>control</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 656" style="min-width:880px" role="img" aria-labelledby="f1t f1d">
+      <title id="f1t">The breaker, per call attempt</title>
+      <desc id="f1d">Four steps: bound the worst case, check it fits under the cap, journal the reservation, submit to OpenRouter with provider.max_price. If it does not fit, the breaker trips. OpenRouter's answer leads to one of four outcomes: settle to the exact cost, unresolved at the worst case, any other 402 trips the breaker, or an in-flight 402 is retried as a new attempt.</desc>
+
+      <!-- step 1 -->
+      <rect class="node ink" x="40" y="30" width="360" height="128" rx="12"/>
+      <text class="t-title" x="58" y="56">1 · Bound the worst case</text>
+      <text class="t-small" x="58" y="80">input tokens ≤ UTF-8 bytes of the outbound body</text>
+      <text class="t-small" x="58" y="101">output tokens ≤ <tspan style="font-family:var(--mono)">max_tokens</tspan> + any reasoning budget</text>
+      <text class="t-small" x="58" y="122">price: the highest endpoint the route allows</text>
+      <text class="t-small" x="58" y="143">prices from the catalog, cached for a day</text>
+
+      <path class="wire" d="M220 158 V 189" marker-end="url(#ah-ink)"/>
+      <text class="t-label" x="232" y="179">reservation $</text>
+
+      <!-- step 2 -->
+      <rect class="node ink" x="40" y="193" width="360" height="90" rx="12"/>
+      <text class="t-title" x="58" y="219">2 · Does it fit under the cap?</text>
+      <text class="t-small" x="58" y="243">settled + open + unresolved reservations</text>
+      <text class="t-small" x="58" y="264">+ this reservation ≤ the run cap</text>
+
+      <path class="wire ctl" d="M220 283 V 314" marker-end="url(#ah-ink)"/>
+      <text class="t-label" x="232" y="303">yes</text>
+
+      <!-- step 3 -->
+      <rect class="node ink" x="40" y="318" width="360" height="90" rx="12"/>
+      <text class="t-title" x="58" y="344">3 · Journal it first</text>
+      <text class="t-small" x="58" y="368">a <tspan style="font-family:var(--mono)">reserve</tspan> line goes to <tspan style="font-family:var(--mono)">spend.jsonl</tspan>,</text>
+      <text class="t-small" x="58" y="389">flushed before the request leaves</text>
+
+      <path class="wire ctl" d="M220 408 V 439" marker-end="url(#ah-ink)"/>
+      <text class="t-label" x="232" y="428">then submit</text>
+
+      <!-- step 4 -->
+      <rect class="node ink" x="40" y="443" width="360" height="110" rx="12"/>
+      <text class="t-title" x="58" y="469">4 · Submit to OpenRouter</text>
+      <text class="t-small" x="58" y="493">the same prices ride along as</text>
+      <text class="t-small" x="58" y="514"><tspan style="font-family:var(--mono)">provider.max_price</tspan>: no costlier host</text>
+      <text class="t-small" x="58" y="535">can serve the call</text>
+
+      <!-- trip box -->
+      <rect class="node catch" x="600" y="193" width="460" height="90" rx="12"/>
+      <text class="t-role c-catch" x="620" y="222">Breaker trips</text>
+      <text class="t-small" x="620" y="246">No new attempt is submitted. In-flight attempts finish.</text>
+      <text class="t-small" x="620" y="267">The run ends <tspan style="font-family:var(--mono)">stopped_budget</tspan>, exit 3 (figure 3)</text>
+
+      <path class="wire guard ctl" d="M400 238 H 596" marker-end="url(#ah-guard)"/>
+      <text class="t-label c-catch" x="498" y="228" text-anchor="middle">no: not submitted</text>
+
+      <!-- answer spine -->
+      <path class="wire" d="M400 498 H 490"/>
+      <path class="wire" d="M490 353 V 599"/>
+      <text class="t-small" x="445" y="488" text-anchor="middle">answer</text>
+      <path class="wire" d="M490 353 H 516" marker-end="url(#ah-ink)"/>
+      <path class="wire" d="M490 435 H 516" marker-end="url(#ah-ink)"/>
+      <path class="wire" d="M490 517 H 516" marker-end="url(#ah-ink)"/>
+      <path class="wire" d="M490 599 H 516" marker-end="url(#ah-ink)"/>
+
+      <!-- outcomes -->
+      <rect class="node hit" x="520" y="318" width="540" height="70" rx="12"/>
+      <text class="t-title" x="536" y="344">Response carries <tspan style="font-family:var(--mono);font-size:13px">usage.cost</tspan></text>
+      <text class="t-label c-hit" x="1044" y="344" text-anchor="end">settle</text>
+      <text class="t-small" x="536" y="368">Settle to the exact cost. A cost above its reservation, by any amount, trips.</text>
+
+      <rect class="node miss" x="520" y="400" width="540" height="70" rx="12"/>
+      <text class="t-title" x="536" y="426">Timeout after submission, lost response, no <tspan style="font-family:var(--mono);font-size:13px">usage.cost</tspan></text>
+      <text class="t-label c-miss" x="1044" y="426" text-anchor="end">unresolved</text>
+      <text class="t-small" x="536" y="450">Counted at its worst case, never zero, until <tspan style="font-family:var(--mono)">budget --audit</tspan> checks it.</text>
+
+      <rect class="node catch" x="520" y="482" width="540" height="70" rx="12"/>
+      <text class="t-title" x="536" y="508">Any other 402: <tspan style="font-family:var(--mono);font-size:13px">BudgetError</tspan></text>
+      <text class="t-label c-catch" x="1044" y="508" text-anchor="end">trips</text>
+      <text class="t-small" x="536" y="532">Exhausted credit, the key's limit, or a request too expensive to admit.</text>
+
+      <rect class="node ink" x="520" y="564" width="540" height="70" rx="12"/>
+      <text class="t-title" x="536" y="590">402 in-flight hold: <tspan style="font-family:var(--mono);font-size:13px">TransientError</tspan></text>
+      <text class="t-label c-muted" x="1044" y="590" text-anchor="end">retry</text>
+      <text class="t-small" x="536" y="614">A temporary hold while other requests settle. Back off, honor Retry-After.</text>
+
+      <!-- trip paths from outcomes -->
+      <path class="wire guard ctl" d="M1060 353 H 1090"/>
+      <path class="wire guard ctl" d="M1060 517 H 1090 V 238 H 1064" marker-end="url(#ah-guard)"/>
+      <circle class="junction" cx="1090" cy="353" r="3.5" style="fill:var(--catch)"/>
+      <text class="t-small c-catch" x="1082" y="304" text-anchor="end">cost too high, or a 402</text>
+
+      <!-- retry loop -->
+      <path class="wire muted ctl" d="M790 634 V 646 H 20 V 94 H 36" marker-end="url(#ah-muted)"/>
+      <text class="t-small" x="40" y="638">retry: a new attempt, reserved again from step 1 · at most 6 attempts per role call</text>
+    </svg>
+    </div>
+    <figcaption>The in-flight hold is a 402 whose <code>error.metadata.limit_source</code> is <code>"openrouter_in_flight_budget"</code>.
+    The client is built with <code>max_retries=0</code> and a 120-second timeout, so no request leaves outside this accounting.
+    The interface is <code>Breaker.reserve(attempt_id, body, spec)</code>, which raises <code>BreakerTripped</code>; then <code>settle</code>, <code>unresolved</code>, <code>tripped</code> and <code>spent_usd()</code> (SPEC §15.4).</figcaption>
+  </figure>
+  <p class="callout open"><span class="tag open">open</span> How a refused attempt's reservation is released (a 402, 429 or 5xx that carries no
+  <code>usage.cost</code>) is not stated. Read literally, §12.9 keeps any reservation that never settles counted at its worst case.</p>
+</section>
+
+<section>
+  <h2>The ledger against the cap</h2>
+  <p class="sub">Settled spend, every open reservation and every unresolved charge all count. The next attempt is reserved only if it still fits.</p>
+  <div class="legend">
+    <span><i class="sw ink"></i>settled</span>
+    <span><i class="sw open"></i>open reservations</span>
+    <span><i class="sw miss"></i>unresolved</span>
+    <span><i class="sw next"></i>next reservation</span>
+    <span><i class="sw catch"></i>the cap</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 270" style="min-width:880px" role="img" aria-labelledby="f2t f2d">
+      <title id="f2t">One run's spend against its $20 cap</title>
+      <desc id="f2d">A bar from 0 to 20 dollars, almost full of settled spend. A zoom on the last 60 cents shows settled spend to 19.65, ten open reservations to 19.96, an unresolved charge to 19.989, and a next reservation of 3.1 cents that would cross the 20 dollar cap, so the breaker trips.</desc>
+
+      <text class="t-head" x="60" y="28">ONE RUN · ILLUSTRATIVE NUMBERS</text>
+      <rect class="track" x="60" y="44" width="940" height="30" rx="4"/>
+      <rect class="seg-settled" x="60" y="44" width="923.6" height="30" rx="4"/>
+      <rect class="seg-open" x="983.6" y="44" width="15.9" height="30"/>
+      <line class="cap-line" x1="1000" y1="36" x2="1000" y2="82"/>
+      <text class="t-label c-catch" x="1000" y="28" text-anchor="middle">$20.00 cap</text>
+      <text class="t-small" x="60" y="96" text-anchor="middle">$0</text>
+      <text class="t-small" x="295" y="96" text-anchor="middle">$5</text>
+      <text class="t-small" x="530" y="96" text-anchor="middle">$10</text>
+      <text class="t-small" x="765" y="96" text-anchor="middle">$15</text>
+
+      <!-- lens -->
+      <rect class="lens" x="976.5" y="40" width="28.2" height="38"/>
+      <path class="lens" d="M976.5 78 L 160 148 M1004.7 78 L 940 148"/>
+
+      <!-- zoom -->
+      <rect class="track" x="160" y="150" width="780" height="40" rx="4"/>
+      <rect class="seg-settled" x="160" y="150" width="195" height="40"/>
+      <rect class="seg-open" x="355" y="150" width="403" height="40"/>
+      <rect class="seg-unres" x="758" y="150" width="37.7" height="40"/>
+      <rect class="seg-next" x="795.7" y="150" width="40.3" height="40"/>
+      <line class="cap-line" x1="810" y1="142" x2="810" y2="198"/>
+      <text class="t-label c-catch" x="836" y="138" text-anchor="end">next attempt $0.031 reaches $20.020: trip</text>
+
+      <text class="t-small" x="160" y="210">$19.50</text>
+      <text class="t-label c-catch" x="810" y="212" text-anchor="middle">cap</text>
+      <text class="t-small" x="940" y="210" text-anchor="end">$20.10</text>
+
+      <text class="t-body" x="257" y="236" text-anchor="middle">settled · $19.650</text>
+      <text class="t-body" x="556" y="236" text-anchor="middle">open: 10 attempts in flight · $0.310</text>
+      <line class="leader" x1="777" y1="192" x2="777" y2="244"/>
+      <text class="t-body" x="777" y="260" text-anchor="middle">unresolved · $0.029</text>
+    </svg>
+    </div>
+    <figcaption>The zoom is the last 60 cents of the bar. Lifetime spend is every settled cost plus every reservation that never settled.
+    Every attempt in flight is already reserved at its worst case, so ten parallel calls cannot overshoot together.
+    The cap covers the run's whole life: lifetime spend is recomputed from <code>spend.jsonl</code> on every resume (<code>run.json</code> holds a copy).</figcaption>
+  </figure>
+
+  <p class="sub" style="margin-top:18px">The journal, <code>spend.jsonl</code>, as SPEC §12.9 shows it. Each line is flushed before the request is submitted, and again when it settles.</p>
+<pre class="cmd journal"><span class="o">{"schema": "simmons.spend/1", "attempt_id": "e17-guard-1", "event": "<span class="warn">reserve</span>", "usd": 0.0310, "request_sha256": "9f2c41d0...", "ts": "2026-10-03T14:12:33.120Z"}
+{"schema": "simmons.spend/1", "attempt_id": "e17-guard-1", "event": "<span class="ok">settle</span>", "usd": 0.0042, "generation_id": "gen-1791061308-a1b2c3", "ts": "2026-10-03T14:12:35.402Z"}
+{"schema": "simmons.spend/1", "attempt_id": "e18-sender-2", "event": "<span class="bad">unresolved</span>", "usd": 0.0290, "reason": "timeout after submission", "ts": "2026-10-03T14:12:41.007Z"}</span></pre>
+  <div class="formula"><span class="c">lifetime spend =</span> Σ settle <span class="c">+</span> Σ reservations never settled <span class="c">(open or unresolved)</span><br>
+  <span class="c">Breaker.spent_usd() = settled + unresolved + open</span></div>
+  <p class="callout">The bound is loose on purpose. In the example, guard attempt <code>e17-guard-1</code> reserved $0.0310 and settled at $0.0042.
+  Unknown charges stay at their worst case until <code>simmons budget --audit</code> looks each one up on OpenRouter by generation id.
+  Calls that belonged to unfinished episodes are journaled too, so no paid call disappears.</p>
+</section>
+
+<section>
+  <h2>What trips it, and what happens next</h2>
+  <p class="sub">A tripped breaker is not an error. The run stops cleanly, keeps every paid call on record, and can be resumed while room remains.</p>
+  <div class="legend">
+    <span><i class="sw ink"></i>trigger</span>
+    <span><i class="sw catch"></i>the breaker</span>
+    <span><i class="ln ctl"></i>control</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 420" style="min-width:880px" role="img" aria-labelledby="f3t f3d">
+      <title id="f3t">The four triggers and what a trip does</title>
+      <desc id="f3d">Four triggers lead to the breaker tripping: the next attempt cannot be reserved, a settled cost exceeds its reservation, a non-transient 402, or the team's credit cannot cover the next wave. Then no new attempt starts, in-flight attempts finish, unfinished episodes are not recorded, the status is stopped_budget with a breaker_tripped event, and the exit code is 3. Later, simmons resume continues only while room remains.</desc>
+
+      <rect class="node ink" x="20" y="20" width="400" height="72" rx="12"/>
+      <text class="t-title" x="38" y="47">1 · The next attempt cannot be reserved</text>
+      <text class="t-small" x="38" y="70">settled + open + unresolved + this would pass the cap</text>
+
+      <rect class="node ink" x="20" y="106" width="400" height="72" rx="12"/>
+      <text class="t-title" x="38" y="133">2 · A settled cost exceeds its reservation</text>
+      <text class="t-small" x="38" y="156">by any amount: the bound should be impossible to pass</text>
+
+      <rect class="node ink" x="20" y="192" width="400" height="72" rx="12"/>
+      <text class="t-title" x="38" y="219">3 · OpenRouter answers a non-transient 402</text>
+      <text class="t-small" x="38" y="242"><tspan style="font-family:var(--mono)">BudgetError</tspan>: anything but the in-flight hold</text>
+
+      <rect class="node ink" x="20" y="278" width="400" height="72" rx="12"/>
+      <text class="t-title" x="38" y="305">4 · Team credit cannot cover the next wave</text>
+      <text class="t-small" x="38" y="328">re-read from OpenRouter after every wave</text>
+
+      <path class="wire guard ctl" d="M420 56 C 446 56, 440 185, 452 185"/>
+      <path class="wire guard ctl" d="M420 142 C 440 142, 440 185, 452 185"/>
+      <path class="wire guard ctl" d="M420 228 C 440 228, 440 185, 452 185"/>
+      <path class="wire guard ctl" d="M420 314 C 446 314, 440 185, 452 185"/>
+      <circle cx="452" cy="185" r="3.5" style="fill:var(--catch)"/>
+      <path class="wire guard ctl" d="M452 185 H 476" marker-end="url(#ah-guard)"/>
+
+      <rect class="node catch" x="480" y="146" width="160" height="78" rx="12"/>
+      <text class="t-role c-catch" x="560" y="178" text-anchor="middle">Breaker trips</text>
+      <text class="t-small" x="560" y="202" text-anchor="middle">the reason is kept</text>
+
+      <path class="wire guard ctl" d="M640 185 H 676"/>
+      <path class="wire guard ctl" d="M676 47 V 303"/>
+      <path class="wire guard ctl" d="M676 47 H 696" marker-end="url(#ah-guard)"/>
+      <path class="wire guard ctl" d="M676 111 H 696" marker-end="url(#ah-guard)"/>
+      <path class="wire guard ctl" d="M676 175 H 696" marker-end="url(#ah-guard)"/>
+      <path class="wire guard ctl" d="M676 239 H 696" marker-end="url(#ah-guard)"/>
+      <path class="wire guard ctl" d="M676 303 H 696" marker-end="url(#ah-guard)"/>
+
+      <rect class="node ink" x="700" y="20" width="380" height="54" rx="10"/>
+      <text class="t-title" x="716" y="52">No new attempt is submitted</text>
+
+      <rect class="node ink" x="700" y="84" width="380" height="54" rx="10"/>
+      <text class="t-title" x="716" y="106">In-flight attempts finish</text>
+      <text class="t-small" x="716" y="127">they are already reserved inside the cap</text>
+
+      <rect class="node ink" x="700" y="148" width="380" height="54" rx="10"/>
+      <text class="t-title" x="716" y="170">Unfinished episodes are not recorded</text>
+      <text class="t-small" x="716" y="191">their paid calls stay in <tspan style="font-family:var(--mono)">spend.jsonl</tspan></text>
+
+      <rect class="node ink" x="700" y="212" width="380" height="54" rx="10"/>
+      <text class="t-title" x="716" y="234"><tspan style="font-family:var(--mono);font-size:13px">run.json</tspan> status <tspan style="font-family:var(--mono);font-size:13px">stopped_budget</tspan></text>
+      <text class="t-small" x="716" y="255">event <tspan style="font-family:var(--mono)">breaker_tripped</tspan> records the reason</text>
+
+      <rect class="node ink" x="700" y="276" width="380" height="54" rx="10"/>
+      <text class="t-title" x="716" y="308">Exit code 3</text>
+
+      <path class="wire muted ctl" d="M890 330 V 352" marker-end="url(#ah-muted)"/>
+      <text class="t-small" x="902" y="346">later</text>
+      <rect class="node ink" x="700" y="356" width="380" height="54" rx="10"/>
+      <text class="t-title" x="716" y="378"><tspan style="font-family:var(--mono);font-size:13px">simmons resume &lt;run-dir&gt;</tspan></text>
+      <text class="t-small" x="716" y="399">continues only while room remains under the cap</text>
+    </svg>
+    </div>
+    <figcaption>Triggers 1 to 3 fire on a single attempt. Trigger 4 is checked after each wave, from the key's <code>limit_remaining</code>,
+    because teammates spend at the same time. With <code>wave_size</code> at its default of 1, that is after every episode.
+    On a trip, stderr says what tripped and what is left.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Nested ceilings</h2>
+  <p class="sub">Five layers, from one call to the account. The inner three are our code. The outer two are OpenRouter's, and still hold if our code is wrong.</p>
+  <div class="legend">
+    <span><i class="sw code"></i>enforced in our code</span>
+    <span><i class="sw out"></i>outside our code</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 452" style="min-width:880px" role="img" aria-labelledby="f4t f4d">
+      <title id="f4t">Nested spend ceilings</title>
+      <desc id="f4d">Prepaid OpenRouter credit contains the OpenRouter key limit, which contains the per-matrix ceiling of 100 dollars in code, which contains the per-run ceiling of 20 dollars in code, which contains the per-call reservation.</desc>
+
+      <rect class="ring out" x="20" y="20" width="1060" height="412" rx="18"/>
+      <text class="t-title" x="38" y="44">Prepaid OpenRouter credit</text>
+      <text class="t-label c-muted" x="1062" y="44" text-anchor="end">outside our code</text>
+      <text class="t-small" x="38" y="66">Auto top-up off: the account can never spend more than was loaded.</text>
+
+      <rect class="ring out alt" x="42" y="78" width="1016" height="340" rx="16"/>
+      <text class="t-title" x="60" y="102">The OpenRouter key limit</text>
+      <text class="t-label c-muted" x="1040" y="102" text-anchor="end">outside our code · OpenRouter enforces it</text>
+      <text class="t-small" x="60" y="124">When the key has one, <tspan style="font-family:var(--mono)">simmons</tspan> reads <tspan style="font-family:var(--mono)">limit_remaining</tspan> from <tspan style="font-family:var(--mono)">GET /api/v1/key</tspan> (free) before each run and between waves, as a second cap.</text>
+
+      <rect class="ring code" x="64" y="136" width="972" height="268" rx="14"/>
+      <text class="t-title" x="82" y="160">Per matrix · <tspan style="font-family:var(--mono);font-size:13px">MATRIX_CEILING_USD = 100</tspan></text>
+      <text class="t-label c-lamp" x="1018" y="160" text-anchor="end">in code · decided 2026-10-03</text>
+      <text class="t-small" x="82" y="182"><tspan style="font-family:var(--mono)">budget_usd</tspan> is required for real models, and validation rejects one above 100. <tspan style="font-family:var(--mono)">matrix run</tspan> refuses a slot that won't fit and never lets counted spend pass the ceiling.</text>
+      <text class="t-small" x="82" y="202">Hard within one process. Soft across people: spend not yet pushed is invisible. <tspan style="font-family:var(--mono)">--sync</tspan> narrows that window. A bigger study splits into several matrices.</text>
+
+      <rect class="ring code alt" x="86" y="216" width="928" height="174" rx="12"/>
+      <text class="t-title" x="104" y="240">Per run · <tspan style="font-family:var(--mono);font-size:13px">RUN_CEILING_USD = 20</tspan> in <tspan style="font-family:var(--mono);font-size:13px">simmons/spend.py</tspan></text>
+      <text class="t-label c-lamp" x="996" y="240" text-anchor="end">in code</text>
+      <text class="t-small" x="104" y="262"><tspan style="font-family:var(--mono)">max_cost_usd</tspan> ≤ 20, default 20. <tspan style="font-family:var(--mono)">--max-cost</tspan> lowers it for one run, never raises it. It covers the run's whole life, across every resume.</text>
+      <text class="t-small" x="104" y="282">In a matrix, each run's cap is the smallest of its <tspan style="font-family:var(--mono)">max_cost_usd</tspan>, the matrix remainder and the session remainder (<tspan style="font-family:var(--mono)">--max-cost</tspan>).</text>
+
+      <rect class="ring core" x="108" y="296" width="884" height="80" rx="10"/>
+      <text class="t-title" x="126" y="320">Per call attempt · the reservation</text>
+      <text class="t-label c-lamp" x="974" y="320" text-anchor="end">in code</text>
+      <text class="t-small" x="126" y="342">The worst case at the top endpoint price, journaled before submission.</text>
+      <text class="t-small" x="126" y="362"><tspan style="font-family:var(--mono)">provider.max_price</tspan> makes OpenRouter refuse any host that would cost more.</text>
+    </svg>
+    </div>
+    <figcaption>Raising either code ceiling is a one-line change a reviewer sees. No config value, flag or environment variable raises it.
+    The monitoring-gap example matrix sets <code>budget_usd: 100</code>, exactly at the ceiling. If the key has no limit, the key layer is skipped.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>The estimate is not the guarantee</h2>
+  <p class="sub">Two separate code paths on purpose. The estimate refuses a run before any call. The reservation bound enforces the cap, call by call.</p>
+  <div class="legend">
+    <span><i class="sw ink"></i>step</span>
+    <span><i class="sw catch"></i>refuse or trip</span>
+    <span><i class="ln ctl"></i>control</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 330" style="min-width:880px" role="img" aria-labelledby="f5t f5d">
+      <title id="f5t">Estimate versus reservation bound</title>
+      <desc id="f5d">Top lane: the estimate renders one sample request per role, counts tokens at characters divided by four, assumes typical output sizes, multiplies by kind counts and cached prices, and refuses with exit 3 if it is over the run cap or team credit. Bottom lane: every call attempt is bounded by bytes, max_tokens and the top endpoint price, journaled, and checked against the cap; over the cap trips the breaker.</desc>
+
+      <text class="t-head" x="20" y="24">THE ESTIMATE · BEFORE THE RUN · PREDICTS A TYPICAL RUN</text>
+      <rect class="node ink" x="20" y="36" width="190" height="96" rx="12"/>
+      <text class="t-title" x="36" y="62">Render one sample</text>
+      <text class="t-small" x="36" y="84">request per role</text>
+
+      <rect class="node ink" x="236" y="36" width="190" height="96" rx="12"/>
+      <text class="t-title" x="252" y="62">Count tokens</text>
+      <text class="t-small" x="252" y="84">characters ÷ 4</text>
+
+      <rect class="node ink" x="452" y="36" width="210" height="96" rx="12"/>
+      <text class="t-title" x="468" y="62">Typical outputs</text>
+      <text class="t-small" x="468" y="84">sender 300 · guard 200</text>
+      <text class="t-small" x="468" y="104">receiver 100 tokens</text>
+
+      <rect class="node ink" x="688" y="36" width="190" height="96" rx="12"/>
+      <text class="t-title" x="704" y="62">× kind counts</text>
+      <text class="t-small" x="704" y="84">× cached prices</text>
+      <text class="t-small" x="704" y="104">+ the log's growth</text>
+
+      <rect class="node catch" x="904" y="36" width="176" height="96" rx="12"/>
+      <text class="t-title" x="920" y="62">Over the cap or</text>
+      <text class="t-title" x="920" y="82">team credit?</text>
+      <text class="t-small" x="920" y="106">yes: exit 3, no files</text>
+
+      <path class="wire ctl" d="M210 84 H 232" marker-end="url(#ah-ink)"/>
+      <path class="wire ctl" d="M426 84 H 448" marker-end="url(#ah-ink)"/>
+      <path class="wire ctl" d="M662 84 H 684" marker-end="url(#ah-ink)"/>
+      <path class="wire ctl" d="M878 84 H 900" marker-end="url(#ah-ink)"/>
+      <text class="t-small" x="20" y="156">Run by <tspan style="font-family:var(--mono)">validate</tspan>, <tspan style="font-family:var(--mono)">run --dry-run</tspan>, <tspan style="font-family:var(--mono)">run</tspan> (start step 4) and <tspan style="font-family:var(--mono)">matrix run</tspan> (each slot). Always labelled an estimate.</text>
+
+      <line x1="20" y1="176" x2="1080" y2="176" stroke="var(--line)" stroke-width="1"/>
+
+      <text class="t-head" x="20" y="202">THE RESERVATION BOUND · EVERY CALL ATTEMPT · CANNOT BE PASSED SILENTLY</text>
+      <rect class="node ink" x="20" y="214" width="190" height="86" rx="12"/>
+      <text class="t-title" x="36" y="240">Every attempt</text>
+      <text class="t-small" x="36" y="262">preflight and retries too</text>
+
+      <rect class="node ink" x="236" y="214" width="426" height="86" rx="12"/>
+      <text class="t-title" x="252" y="240">Bytes of the body + <tspan style="font-family:var(--mono);font-size:13px">max_tokens</tspan> + reasoning</text>
+      <text class="t-small" x="252" y="262">priced at the highest endpoint the route allows</text>
+      <text class="t-small" x="252" y="282">a true upper bound, not an estimate</text>
+
+      <rect class="node ink" x="688" y="214" width="190" height="86" rx="12"/>
+      <text class="t-title" x="704" y="240">Journal, then check</text>
+      <text class="t-small" x="704" y="262">settled + open +</text>
+      <text class="t-small" x="704" y="282">unresolved + this</text>
+
+      <rect class="node catch" x="904" y="214" width="176" height="86" rx="12"/>
+      <text class="t-title" x="920" y="240">Over the cap?</text>
+      <text class="t-small" x="920" y="262">yes: trip, exit 3</text>
+      <text class="t-small" x="920" y="282">no: submit</text>
+
+      <path class="wire ctl" d="M210 257 H 232" marker-end="url(#ah-ink)"/>
+      <path class="wire ctl" d="M662 257 H 684" marker-end="url(#ah-ink)"/>
+      <path class="wire ctl" d="M878 257 H 900" marker-end="url(#ah-ink)"/>
+      <text class="t-small" x="20" y="322">The estimate can be wrong. The bound should never be passed: if a settled cost ever exceeds its reservation, the breaker trips instead of guessing.</text>
+    </svg>
+    </div>
+    <figcaption>Refusal compares the estimate with the smaller of the run cap and the team's remaining credit, when that is known.
+    <code>--dry-run</code> stops there: it prints the kind counts and the estimate, writes nothing, and exits 0 if it fits or 3 if not.</figcaption>
+  </figure>
+  <p class="callout open"><span class="tag open">open</span> <code>shadow_decode</code> is now on by default, which adds one receiver call per CATCH.
+  SPEC §19.2 does not say the estimate counts it. The reservation bound covers it either way, since every shadow call is an attempt like any other.</p>
+</section>
+
+<section>
+  <h2>How we know the ceilings hold</h2>
+  <p class="callout decided" style="margin:0 0 14px"><b>Guardrail (EVALUATION.md):</b> No run spends more than $20; no matrix more than $100. Neither ceiling can be raised without a code change.</p>
+  <div class="cards proof">
+    <div class="card lamp"><h3>E-06 · run breaker</h3><p class="how">A priced fake run at <code>--concurrency 8</code> with a $0.05 cap stops below $0.05. <code>max_cost_usd: 25</code> fails validation. The constant is <code>RUN_CEILING_USD = 20.0</code>.</p><span class="k">autonomous</span></div>
+    <div class="card lamp"><h3>E-14 · reservations bound</h3><p class="how">In a real 5-episode run, every <code>settle</code> in <code>spend.jsonl</code> is at or below its <code>reserve</code>, and the run stays under its cap.</p><span class="k">operator-assisted (H1)</span></div>
+    <div class="card lamp"><h3>E-15 · checked first</h3><p class="how">A refused run exits 3 and writes no directory. <code>--dry-run</code> exits 0 or 3. A permanent preflight failure aborts with exit 4 before episode 0.</p><span class="k">autonomous, operator-assisted live</span></div>
+    <div class="card lamp"><h3>E-16 · ledger matches</h3><p class="how"><code>simmons budget --audit &lt;run&gt;</code> on a real run reports 0 mismatches against OpenRouter.</p><span class="k">external-oracle (H1)</span></div>
+    <div class="card lamp"><h3>E-33 · matrix ceiling</h3><p class="how"><code>budget_usd: 150</code> fails validation. A priced fake matrix stops at its budget. The constant is <code>MATRIX_CEILING_USD = 100.0</code>.</p><span class="k">autonomous</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>Commands</h2>
+  <p class="sub">Every command is non-interactive and takes <code>--json</code>. Exit 3 always means money: refused before starting, or the breaker tripped.</p>
+<pre class="cmd"><span class="c"># kind counts and the estimate; writes nothing; exit 0 if it fits, 3 if not</span>
+<span class="p">$ </span>simmons run experiments/reference.json --dry-run
+<span class="c"># a cheap try, written under runs-local/</span>
+<span class="p">$ </span>simmons run experiments/reference.json --episodes 40 --scratch
+<span class="c"># key limit, usage (all-time, today, this week), remaining credit,</span>
+<span class="c"># spend by author and experiment, and how many runs the remainder buys</span>
+<span class="p">$ </span>simmons budget
+<span class="c"># every call's recorded cost against OpenRouter's, by generation id</span>
+<span class="p">$ </span>simmons budget --audit runs/&lt;experiment&gt;/&lt;run-id&gt;
+<span class="c"># spend totals by author, experiment and matrix</span>
+<span class="p">$ </span>simmons ls --cost
+<span class="c"># every missing slot with its estimate, the running total and the budget cut</span>
+<span class="p">$ </span>simmons matrix run matrices/&lt;m&gt;.json --dry-run</pre>
+  <p class="callout decided"><span class="tag decided">decided 2026-10-03</span> All real model traffic goes through OpenRouter in v1: one key
+  (<code>OPENROUTER_API_KEY</code>), one adapter, and the exact cost of every call in <code>usage.cost</code>. Fake models cost nothing
+  unless <code>params.price_in</code> and <code>params.price_out</code> are set, which is how the tests trip the breaker.</p>
+</section>
+
+<footer class="pager">
+  <a href="records.html">← 4 · Records</a>
+  <a href="matrix.html">6 · Matrices →</a>
+  <span class="src">Source: docs/SPEC.md §19, §12.9, §15.1, §15.4, §9.1, §9.5 and §14.8, docs/BUILDPLAN.md (T08, T20) and docs/EVALUATION.md, at commit d2bc655 (origin/main). Example numbers are the spec's own, except where marked illustrative.</span>
+</footer>
+
+</div>
+</body>
+</html>

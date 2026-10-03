@@ -1,0 +1,1004 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Records · SimmonsSwarm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+/* Theme: ?theme=light|dark wins, then the saved choice, then the system setting. */
+(function () {
+  var root = document.documentElement;
+  function apply(t) {
+    if (t === "light" || t === "dark") root.setAttribute("data-theme", t);
+    else { root.removeAttribute("data-theme"); t = "auto"; }
+    var b = document.getElementById("theme-btn");
+    if (b) b.textContent = "Theme: " + t;
+  }
+  var q = null, saved = null;
+  try { q = new URLSearchParams(location.search).get("theme"); } catch (e) {}
+  try { saved = localStorage.getItem("simmons-theme"); } catch (e) {}
+  var start = q || saved || "auto";
+  apply(start);
+  window.cycleTheme = function () {
+    var cur = root.getAttribute("data-theme") || "auto";
+    var next = cur === "auto" ? "light" : cur === "light" ? "dark" : "auto";
+    apply(next);
+    try { localStorage.setItem("simmons-theme", next); } catch (e) {}
+  };
+  document.addEventListener("DOMContentLoaded", function () { apply(root.getAttribute("data-theme") || "auto"); });
+})();
+</script>
+<style>
+/* ===== SimmonsSwarm diagram set: shared base (keep identical across pages) ===== */
+:root {
+  --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --bg: #f6f4ef; --panel: #ffffff; --panel-2: #f0eee8;
+  --ink: #1b1f24; --ink-2: #3a414b; --muted: #6b7380; --line: #d9d5cc;
+  --team: #0f7f73; --team-soft: rgba(15, 127, 115, 0.10);
+  --guard: #c4362c; --guard-soft: rgba(196, 54, 44, 0.09);
+  --judge: #6d4fd6; --judge-soft: rgba(109, 79, 214, 0.10);
+  --plain: #5a6577; --plain-soft: rgba(90, 101, 119, 0.10);
+  --hit: #1a7f37; --hit-soft: rgba(26, 127, 55, 0.10);
+  --miss: #9a6700; --miss-soft: rgba(154, 103, 0, 0.10);
+  --catch: #c4362c;
+  --lamp: #e8a317; --lamp-soft: rgba(232, 163, 23, 0.14); --lamp-ink: #8a5a00;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1015; --panel: #151a21; --panel-2: #1b212a;
+    --ink: #e8ebf0; --ink-2: #c3c9d3; --muted: #8b95a5; --line: #2a313c;
+    --team: #35c4b2; --team-soft: rgba(53, 196, 178, 0.10);
+    --guard: #f0635a; --guard-soft: rgba(240, 99, 90, 0.10);
+    --judge: #a78bfa; --judge-soft: rgba(167, 139, 250, 0.12);
+    --plain: #9aa6b8; --plain-soft: rgba(154, 166, 184, 0.10);
+    --hit: #4ac15e; --hit-soft: rgba(74, 193, 94, 0.10);
+    --miss: #e0a43a; --miss-soft: rgba(224, 164, 58, 0.10);
+    --catch: #f0635a;
+    --lamp: #ffbf3c; --lamp-soft: rgba(255, 191, 60, 0.12); --lamp-ink: #ffbf3c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1015; --panel: #151a21; --panel-2: #1b212a;
+  --ink: #e8ebf0; --ink-2: #c3c9d3; --muted: #8b95a5; --line: #2a313c;
+  --team: #35c4b2; --team-soft: rgba(53, 196, 178, 0.10);
+  --guard: #f0635a; --guard-soft: rgba(240, 99, 90, 0.10);
+  --judge: #a78bfa; --judge-soft: rgba(167, 139, 250, 0.12);
+  --plain: #9aa6b8; --plain-soft: rgba(154, 166, 184, 0.10);
+  --hit: #4ac15e; --hit-soft: rgba(74, 193, 94, 0.10);
+  --miss: #e0a43a; --miss-soft: rgba(224, 164, 58, 0.10);
+  --catch: #f0635a;
+  --lamp: #ffbf3c; --lamp-soft: rgba(255, 191, 60, 0.12); --lamp-ink: #ffbf3c;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 16px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--team); }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 72px; }
+@media (max-width: 640px) { .wrap { padding: 0 16px 48px; } }
+
+/* top navigation */
+.topnav { display: flex; align-items: center; gap: 10px 18px; flex-wrap: wrap; padding: 14px 0; margin-bottom: 26px; border-bottom: 1px solid var(--line); }
+.topnav .brand { font: 700 15px var(--sans); color: var(--ink); text-decoration: none; white-space: nowrap; }
+.topnav .brand span { color: var(--muted); font-weight: 500; }
+.navlinks { display: flex; gap: 4px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.navlinks::-webkit-scrollbar { display: none; }
+.navlinks a { font: 500 13.5px var(--sans); color: var(--ink-2); text-decoration: none; padding: 5px 10px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; }
+.navlinks a:hover { border-color: var(--line); }
+.navlinks a[aria-current="page"] { background: var(--panel); border-color: var(--line); color: var(--ink); font-weight: 600; }
+.navlinks a .n { font-family: var(--mono); color: var(--muted); margin-right: 5px; }
+#theme-btn { font: 500 12.5px var(--mono); color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; width: 17ch; white-space: nowrap; text-align: center; cursor: pointer; }
+@media (max-width: 760px) { .navlinks { order: 3; flex-basis: 100%; } }
+
+/* page header */
+header.page { margin-bottom: 22px; }
+h1 { font: 700 34px/1.12 var(--sans); letter-spacing: -0.01em; margin: 0 0 10px; }
+@media (max-width: 640px) { h1 { font-size: 28px; } }
+.lede { color: var(--ink-2); margin: 0; max-width: 760px; font-size: 16.5px; }
+.meta { margin: 10px 0 0; font: 500 12.5px var(--mono); color: var(--muted); }
+h2 { font: 700 21px/1.25 var(--sans); margin: 0 0 8px; }
+h3 { font: 700 16px/1.3 var(--sans); margin: 0 0 6px; }
+section { margin: 0 0 44px; }
+.sub { color: var(--muted); font-size: 14.5px; margin: 0 0 14px; max-width: 820px; }
+p { max-width: 820px; }
+code, .mono { font-family: var(--mono); font-size: 0.9em; }
+
+/* figures */
+figure.diagram { margin: 0 0 14px; padding: 16px 16px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; }
+.fig-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+figure.diagram svg { display: block; width: 100%; height: auto; }
+figcaption { color: var(--muted); font-size: 13.5px; margin: 8px 2px 0; max-width: 900px; }
+.scroll-hint { display: none; font: 500 12px var(--mono); color: var(--muted); margin: 0 0 6px; }
+@media (max-width: 760px) { .scroll-hint { display: block; } }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 13px; color: var(--ink-2); margin: 0 0 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
+.sw.team { background: var(--team); } .sw.guard { background: var(--guard); } .sw.judge { background: var(--judge); }
+.sw.plain { background: var(--plain); } .sw.lamp { background: var(--lamp); } .sw.ink { background: var(--ink-2); }
+.sw.hit { background: var(--hit); } .sw.miss { background: var(--miss); } .sw.catch { background: var(--catch); }
+.sw.iter { border: 1.5px dashed var(--muted); background: transparent; }
+.ln { width: 26px; height: 0; border-top: 2.2px solid var(--ink-2); display: inline-block; }
+.ln.ctl { border-top-style: dashed; }
+
+/* SVG vocabulary (shared with diagram.html) */
+.node { fill: var(--panel); stroke: var(--line); stroke-width: 2; }
+.node.team { stroke: var(--team); fill: var(--team-soft); }
+.node.guard { stroke: var(--guard); fill: var(--guard-soft); }
+.node.judge { stroke: var(--judge); fill: var(--judge-soft); }
+.node.plain { stroke: var(--plain); fill: var(--plain-soft); }
+.node.lamp { stroke: var(--lamp); fill: var(--lamp-soft); }
+.node.hit { stroke: var(--hit); fill: var(--hit-soft); }
+.node.miss { stroke: var(--miss); fill: var(--miss-soft); }
+.node.ink { stroke: var(--ink-2); fill: var(--panel); }
+.node.soft { stroke: var(--line); fill: var(--panel-2); stroke-width: 1.5; }
+.prompt { stroke-width: 1.6; stroke-dasharray: 6 5; fill: var(--panel); }
+.prompt.team { stroke: var(--team); } .prompt.guard { stroke: var(--guard); } .prompt.plain { stroke: var(--plain); }
+.t-id { font: 700 24px var(--mono); }
+.t-id.team { fill: var(--team); } .t-id.guard { fill: var(--guard); }
+.t-id.judge { fill: var(--judge); } .t-id.plain { fill: var(--plain); }
+.t-role { font: 600 15px var(--sans); fill: var(--ink); }
+.t-title { font: 600 14.5px var(--sans); fill: var(--ink); }
+.t-small { font: 12.5px var(--sans); fill: var(--muted); }
+.t-body { font: 13px var(--sans); fill: var(--ink-2); }
+.t-label { font: 500 12.5px var(--mono); fill: var(--ink-2); }
+.t-code { font: 500 12.5px var(--mono); fill: var(--ink); }
+.t-head { font: 700 12px var(--mono); letter-spacing: 0.08em; fill: var(--muted); }
+/* colour classes: after the type classes, and scoped to svg, so .c-* always beats .t-small and .t-label */
+svg .c-team { fill: var(--team); } svg .c-guard { fill: var(--guard); } svg .c-judge { fill: var(--judge); } svg .c-plain { fill: var(--plain); }
+svg .c-lamp { fill: var(--lamp-ink); } svg .c-hit { fill: var(--hit); } svg .c-miss { fill: var(--miss); } svg .c-catch { fill: var(--catch); }
+svg .c-muted { fill: var(--muted); } svg .c-ink { fill: var(--ink); }
+.wire { fill: none; stroke-width: 2.2; stroke: var(--ink-2); }
+.wire.team { stroke: var(--team); } .wire.guard { stroke: var(--guard); } .wire.judge { stroke: var(--judge); }
+.wire.plain { stroke: var(--plain); } .wire.hit { stroke: var(--hit); } .wire.miss { stroke: var(--miss); }
+.wire.lamp { stroke: var(--lamp); } .wire.muted { stroke: var(--muted); }
+.wire.ctl { stroke-dasharray: 6 5; stroke-width: 1.8; }
+.wire.never { stroke: var(--muted); stroke-dasharray: 2 5; stroke-linecap: round; stroke-width: 2; }
+.f-team { fill: var(--team); } .f-ink { fill: var(--ink-2); } .f-guard { fill: var(--guard); } .f-judge { fill: var(--judge); }
+.f-plain { fill: var(--plain); } .f-hit { fill: var(--hit); } .f-miss { fill: var(--miss); } .f-muted { fill: var(--muted); } .f-lamp { fill: var(--lamp); }
+.xdot { fill: var(--panel); stroke: var(--guard); stroke-width: 1.8; }
+.xmark { fill: none; stroke: var(--guard); stroke-width: 2.2; stroke-linecap: round; }
+.badge { stroke-width: 2; fill: var(--panel); }
+.badge.catch { fill: var(--guard-soft); stroke: var(--catch); } .badge.hit { stroke: var(--hit); } .badge.miss { stroke: var(--miss); }
+.t-badge { font: 700 14px var(--mono); letter-spacing: 0.06em; }
+.t-badge.catch { fill: var(--catch); } .t-badge.hit { fill: var(--hit); } .t-badge.miss { fill: var(--miss); }
+.junction { fill: var(--muted); }
+
+/* cards, tables, callouts */
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.cards.two { grid-template-columns: repeat(2, 1fr); }
+.cards.four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) { .cards.four { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 820px) { .cards, .cards.two { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .cards.four { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; border-top: 4px solid var(--line); }
+.card.team { border-top-color: var(--team); } .card.guard { border-top-color: var(--guard); } .card.judge { border-top-color: var(--judge); }
+.card.plain { border-top-color: var(--plain); } .card.lamp { border-top-color: var(--lamp); } .card.hit { border-top-color: var(--hit); }
+.card.miss { border-top-color: var(--miss); } .card.catch { border-top-color: var(--catch); }
+.card p { margin: 0 0 6px; color: var(--ink-2); font-size: 14.5px; }
+.card .k { font: 500 12.5px var(--mono); color: var(--muted); }
+.table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th { font: 600 12.5px var(--sans); color: var(--muted); background: var(--panel-2); }
+tbody tr:last-child td, tbody tr:last-child th { border-bottom: 0; }
+td.f, .fld { font: 500 12.5px var(--mono); color: var(--ink); white-space: nowrap; }
+.callout { margin: 14px 0 0; padding: 12px 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--line); color: var(--ink-2); font-size: 14.5px; max-width: 900px; }
+.callout b { color: var(--ink); }
+.callout.decided { border-left-color: var(--lamp); }
+.callout.open { border: 1px dashed var(--muted); border-left: 4px dashed var(--muted); }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font: 600 11.5px var(--mono); letter-spacing: 0.03em; white-space: nowrap; vertical-align: 1px; }
+.tag.decided { color: var(--lamp-ink); border: 1.5px solid var(--lamp); }
+.tag.open { color: var(--muted); border: 1.5px dashed var(--muted); }
+.tag.code { color: var(--ink-2); border: 1px solid var(--line); background: var(--panel-2); }
+pre.cmd { margin: 0; padding: 14px 16px; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; font: 13px/1.6 var(--mono); color: var(--ink); }
+pre.cmd .p { color: var(--muted); user-select: none; }
+pre.cmd .c { color: var(--muted); }
+pre.cmd .o { color: var(--ink-2); }
+pre.cmd .ok { color: var(--hit); } pre.cmd .bad { color: var(--catch); } pre.cmd .warn { color: var(--lamp-ink); }
+
+footer.pager { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 14px; margin-top: 8px; font-size: 13.5px; color: var(--muted); }
+footer.pager a { text-decoration: none; font-weight: 600; }
+footer.pager .src { flex-basis: 100%; font-size: 12.5px; }
+/* ===== end shared base ===== */
+
+/* page: records */
+.row-c { fill: var(--panel); stroke: var(--ink-2); stroke-width: 1.5; }
+.row-l { fill: var(--panel-2); stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.pill { fill: var(--panel-2); stroke: var(--line); stroke-width: 1; }
+.lead { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+.stripe { fill: var(--lamp); }
+.node.dashed { stroke-dasharray: 6 5; }
+.node.lampish { fill: var(--panel-2); stroke: var(--ink); stroke-width: 2.4; }
+.pill-id { stroke-width: 2; fill: var(--panel); }
+.pill-id.team { stroke: var(--team); } .pill-id.guard { stroke: var(--guard); } .pill-id.ink { stroke: var(--ink-2); }
+.ann { fill: var(--panel-2); stroke: var(--line); stroke-width: 1; }
+.ann.decided-ann { stroke: var(--lamp); stroke-width: 1.6; }
+.mini rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; }
+.mini rect.hot { fill: var(--panel-2); stroke: var(--ink); stroke-width: 2.4; }
+.ticks line { stroke: var(--muted); stroke-width: 1.5; }
+.ci { fill: var(--team-soft); stroke: var(--team); stroke-width: 1.5; }
+.sw.rc { background: var(--panel); border: 1.5px solid var(--ink-2); }
+.sw.rl { background: var(--panel-2); border: 1.5px dashed var(--muted); }
+.ln.thin { border-top: 1.2px solid var(--muted); }
+.ln.never { border-top: 2.2px dotted var(--muted); }
+.card h3 { font-size: 15.5px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="ah-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-ink"/></marker>
+    <marker id="ah-team" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-team"/></marker>
+    <marker id="ah-guard" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-guard"/></marker>
+    <marker id="ah-judge" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-judge"/></marker>
+    <marker id="ah-plain" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-plain"/></marker>
+    <marker id="ah-hit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-hit"/></marker>
+    <marker id="ah-miss" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-miss"/></marker>
+    <marker id="ah-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-muted"/></marker>
+    <marker id="ah-lamp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-lamp"/></marker>
+  </defs>
+</svg>
+<div class="wrap">
+
+<nav class="topnav" aria-label="Diagram set">
+  <a class="brand" href="index.html">SimmonsSwarm <span>diagrams</span></a>
+  <div class="navlinks">
+    <a href="index.html"><span class="n">0</span>Map</a>
+    <a href="overview.html"><span class="n">1</span>Game</a>
+    <a href="episode.html"><span class="n">2</span>Run</a>
+    <a href="visibility.html"><span class="n">3</span>Visibility</a>
+    <a href="records.html" aria-current="page"><span class="n">4</span>Records</a>
+    <a href="spend.html"><span class="n">5</span>Spend</a>
+    <a href="matrix.html"><span class="n">6</span>Matrices</a>
+    <a href="usage.html"><span class="n">7</span>Usage</a>
+    <a href="build.html"><span class="n">8</span>Build</a>
+  </div>
+  <button id="theme-btn" type="button" onclick="cycleTheme()">Theme: auto</button>
+</nav>
+
+<header class="page">
+  <h1>Records</h1>
+  <p class="lede">Every run writes one directory. The durable files are committed, so pulling the repo pulls everyone's results.
+  The grid, the dataset and every pivot are rebuilt from those files each time.</p>
+  <p class="meta">SPEC §2 Q21 · §5 · §6.3 · §8 Trajectories · §9.1 · §9.7 Forks · §12 · §14.1 · §14.3 · §20</p>
+</header>
+
+<section>
+  <h2>Anatomy of a run directory</h2>
+  <p class="sub">One directory per run. Git tracks the small, durable files. The bulky or regenerable files stay on the machine that ran it.</p>
+  <div class="legend">
+    <span><i class="sw rc"></i>committed: tracked by git</span>
+    <span><i class="sw rl"></i>gitignored: this machine only</span>
+    <span><i class="sw lamp"></i>changed by the decisions of 2026-10-03</span>
+    <span><i class="ln"></i>data</span>
+    <span><i class="ln thin"></i>detail of</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 750" style="min-width:880px" role="img" aria-labelledby="f1t f1d">
+      <title id="f1t">Anatomy of a run directory</title>
+      <desc id="f1d">Three roots: runs (committed), runs-local (fake and scratch runs, gitignored) and results (generated, gitignored). Inside a run directory, ten files are committed and five stay local. requests.jsonl is compressed into requests.jsonl.xz at run end. summary.json and attempt-log.jsonl are derived from episodes.jsonl.</desc>
+
+      <!-- three roots -->
+      <rect class="row-c" x="20" y="20" width="340" height="86" rx="12"/>
+      <text class="t-code" x="38" y="48" style="font-weight:700">runs/</text>
+      <text class="t-small" x="38" y="70">real-model runs · committed</text>
+      <text class="t-label" x="38" y="92">runs/&lt;experiment&gt;/&lt;run-id&gt;/</text>
+
+      <rect class="row-l" x="380" y="20" width="340" height="86" rx="12"/>
+      <text class="t-code" x="398" y="48" style="font-weight:700">runs-local/</text>
+      <text class="t-small" x="398" y="70">fake and --scratch runs · gitignored</text>
+      <text class="t-small" x="398" y="92">same layout as runs/</text>
+
+      <rect class="row-l" x="740" y="20" width="340" height="86" rx="12"/>
+      <text class="t-code" x="758" y="48" style="font-weight:700">results/</text>
+      <text class="t-small" x="758" y="70">grid.html · dataset.jsonl · dataset.csv</text>
+      <text class="t-small" x="758" y="92">generated on demand · gitignored</text>
+
+      <path class="lead" d="M190 106 V 128"/>
+      <text class="t-label" x="56" y="146">runs/&lt;experiment&gt;/&lt;run-id&gt;/</text>
+      <text class="t-small" x="330" y="146">for example runs/reference/20261003T141200Z-atin-3f9a/</text>
+
+      <text class="t-head" x="56" y="182">TRACKED BY GIT · PUSHED AND PULLED</text>
+      <text class="t-head" x="636" y="182">GITIGNORED · THIS MACHINE ONLY</text>
+
+      <!-- committed rows: x 56..588 -->
+      <g>
+        <rect class="row-c" x="56" y="196" width="532" height="46" rx="8"/>
+        <text class="t-code" x="72" y="214">run.json</text>
+        <text class="t-small" x="72" y="233">identity, status, trajectory; spent_usd from spend.jsonl</text>
+        <rect class="pill" x="476" y="207" width="100" height="24" rx="12"/>
+        <text class="t-label" x="526" y="224" text-anchor="middle">atomic</text>
+      </g>
+      <g>
+        <rect class="row-c" x="56" y="250" width="532" height="46" rx="8"/>
+        <text class="t-code" x="72" y="268">config.json</text>
+        <text class="t-small" x="72" y="287">fully resolved config with content hashes</text>
+        <rect class="pill" x="476" y="261" width="100" height="24" rx="12"/>
+        <text class="t-label" x="526" y="278" text-anchor="middle">atomic</text>
+      </g>
+      <g>
+        <rect class="row-c" x="56" y="304" width="532" height="46" rx="8"/>
+        <text class="t-code" x="72" y="322">inputs/</text>
+        <text class="t-small" x="72" y="341">snapshot of every input; the run reads only this</text>
+        <rect class="pill" x="476" y="315" width="100" height="24" rx="12"/>
+        <text class="t-label" x="526" y="332" text-anchor="middle">at start</text>
+      </g>
+      <g>
+        <rect class="row-c" x="56" y="358" width="532" height="46" rx="8"/>
+        <text class="t-code" x="72" y="376">plan.jsonl</text>
+        <text class="t-small" x="72" y="395">one line per planned episode: kind, options, target</text>
+        <rect class="pill" x="476" y="369" width="100" height="24" rx="12"/>
+        <text class="t-label" x="526" y="386" text-anchor="middle">at start</text>
+      </g>
+      <g>
+        <rect class="row-c" x="56" y="412" width="532" height="46" rx="8"/>
+        <text class="t-code" x="72" y="430">episodes.jsonl</text>
+        <text class="t-small" x="72" y="449">one line per finished episode: the authoritative record</text>
+        <rect class="pill" x="456" y="423" width="120" height="24" rx="12"/>
+        <text class="t-label" x="516" y="440" text-anchor="middle">append·flush</text>
+      </g>
+      <g>
+        <rect class="row-c" x="56" y="466" width="532" height="46" rx="8"/>
+        <rect class="stripe" x="56" y="466" width="6" height="46" rx="3"/>
+        <text class="t-code" x="72" y="484">attempt-log.jsonl</text>
+        <text class="t-small" x="72" y="503">this run's log entries; a slot's log spans runs</text>
+        <rect class="pill" x="456" y="477" width="120" height="24" rx="12"/>
+        <text class="t-label" x="516" y="494" text-anchor="middle">append·flush</text>
+      </g>
+      <g>
+        <rect class="row-c" x="56" y="520" width="532" height="46" rx="8"/>
+        <text class="t-code" x="72" y="538">spend.jsonl</text>
+        <text class="t-small" x="72" y="557">every reservation and settlement, before each submit</text>
+        <rect class="pill" x="456" y="531" width="120" height="24" rx="12"/>
+        <text class="t-label" x="516" y="548" text-anchor="middle">append·flush</text>
+      </g>
+      <g>
+        <rect class="row-c" x="56" y="574" width="532" height="46" rx="8"/>
+        <text class="t-code" x="72" y="592">requests.jsonl.xz</text>
+        <text class="t-small" x="72" y="611">every call attempt's full request, by request_sha256</text>
+        <rect class="pill" x="456" y="585" width="120" height="24" rx="12"/>
+        <text class="t-label" x="516" y="602" text-anchor="middle">at run end</text>
+      </g>
+      <g>
+        <rect class="row-c" x="56" y="628" width="532" height="46" rx="8"/>
+        <text class="t-code" x="72" y="646">summary.json</text>
+        <text class="t-small" x="72" y="665">metrics; regenerable with simmons summarize</text>
+        <rect class="pill" x="456" y="639" width="120" height="24" rx="12"/>
+        <text class="t-label" x="516" y="656" text-anchor="middle">at run end</text>
+      </g>
+      <g>
+        <rect class="row-c" x="56" y="682" width="532" height="46" rx="8"/>
+        <text class="t-code" x="72" y="700">review.md</text>
+        <text class="t-small" x="72" y="719">optional: a person's cover-task check</text>
+        <rect class="pill" x="476" y="693" width="100" height="24" rx="12"/>
+        <text class="t-label" x="526" y="710" text-anchor="middle">by hand</text>
+      </g>
+
+      <!-- derived-from arrows in the left gutter -->
+      <path class="wire" d="M56 435 H 36 V 651 H 52" marker-end="url(#ah-ink)"/>
+      <path class="wire" d="M36 489 H 52" marker-end="url(#ah-ink)"/>
+      <circle class="junction" cx="36" cy="489" r="3"/>
+
+      <!-- local rows: x 636..1068 -->
+      <g>
+        <rect class="row-l" x="636" y="196" width="432" height="46" rx="8"/>
+        <text class="t-code" x="652" y="214">run.lock</text>
+        <text class="t-small" x="652" y="233">PID and host of the process that owns it</text>
+        <rect class="pill" x="956" y="207" width="100" height="24" rx="12"/>
+        <text class="t-label" x="1006" y="224" text-anchor="middle">exclusive</text>
+      </g>
+      <g>
+        <rect class="row-l" x="636" y="250" width="432" height="46" rx="8"/>
+        <text class="t-code" x="652" y="268">events.jsonl</text>
+        <text class="t-small" x="652" y="287">timeline: waves, calls, retries, breaker</text>
+        <rect class="pill" x="956" y="261" width="100" height="24" rx="12"/>
+        <text class="t-label" x="1006" y="278" text-anchor="middle">append</text>
+      </g>
+      <g>
+        <rect class="row-l" x="636" y="304" width="432" height="46" rx="8"/>
+        <text class="t-code" x="652" y="322">calls.jsonl</text>
+        <text class="t-small" x="652" y="341">every raw provider response, with timings</text>
+        <rect class="pill" x="956" y="315" width="100" height="24" rx="12"/>
+        <text class="t-label" x="1006" y="332" text-anchor="middle">append</text>
+      </g>
+      <g>
+        <rect class="row-l" x="636" y="358" width="432" height="46" rx="8"/>
+        <text class="t-code" x="652" y="376">view/</text>
+        <text class="t-small" x="652" y="395">viewer pages written by simmons view</text>
+        <rect class="pill" x="956" y="369" width="100" height="24" rx="12"/>
+        <text class="t-label" x="1006" y="386" text-anchor="middle">generated</text>
+      </g>
+
+      <!-- inputs detail -->
+      <rect class="row-c" x="636" y="430" width="432" height="122" rx="10"/>
+      <text class="t-title" x="652" y="454">inside inputs/ · committed</text>
+      <text class="t-body" x="652" y="477">P₁ · P₂ · plain prompt · cover task</text>
+      <text class="t-body" x="652" y="497">option set · templates · tools.json</text>
+      <text class="t-body" x="652" y="517">matrix.json, for a matrix cell's run</text>
+      <text class="t-small" x="652" y="540">From step 6 of run start, the run reads only these.</text>
+      <path class="lead" d="M588 327 H 612 V 491 H 636"/>
+      <circle class="junction" cx="588" cy="327" r="3"/>
+
+      <!-- requests.jsonl to .xz -->
+      <g>
+        <rect class="row-l" x="636" y="574" width="432" height="46" rx="8"/>
+        <text class="t-code" x="652" y="592">requests.jsonl</text>
+        <text class="t-small" x="652" y="611">full requests while the run is live</text>
+        <rect class="pill" x="956" y="585" width="100" height="24" rx="12"/>
+        <text class="t-label" x="1006" y="602" text-anchor="middle">append</text>
+      </g>
+      <path class="wire" d="M636 597 H 592" marker-end="url(#ah-ink)"/>
+      <text class="t-small" x="652" y="652">compressed with xz into requests.jsonl.xz</text>
+      <text class="t-small" x="652" y="671">at run end, then committed</text>
+    </svg>
+    </div>
+    <figcaption><b>append·flush</b>: one line per event, flushed after every line, so a crash loses at most a torn final line.
+    <b>atomic</b>: written to a temporary file and renamed into place. The gutter arrows show what is derived from <code>episodes.jsonl</code>:
+    <code>summary.json</code>, and <code>attempt-log.jsonl</code> (rewritten from it on resume). A 200-episode run's records are under a megabyte;
+    <code>simmons ls</code> warns before a run over 10 MB is committed.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>A slot's log spans run directories</h2>
+  <p class="sub">One attempt log per experiment and seed. Each run's <code>attempt-log.jsonl</code> holds its own entries.
+  A later run of the slot finds the earlier runs, continues their log, and lists them in <code>run.json</code> under <code>trajectory</code>.</p>
+  <div class="legend">
+    <span><i class="sw team"></i>attempt-log entries</span>
+    <span><i class="ln"></i>data</span>
+    <span><i class="ln never"></i>not continued</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 400" style="min-width:880px" role="img" aria-labelledby="f2t f2d">
+      <title id="f2t">One trajectory across runs</title>
+      <desc id="f2d">Run A of reference seed 7 records episodes 0 to 199 and 140 log entries. Run B inherits those entries and records episodes 200 to 399. A second run that also inherited run A's entries is a fork. The next run continues from the longer branch.</desc>
+
+      <text class="t-head" x="20" y="28">ONE SLOT · experiments/reference.json · seed 7 · one config_hash</text>
+
+      <!-- Run A -->
+      <rect class="node ink" x="20" y="70" width="310" height="128" rx="12"/>
+      <text class="t-title" x="36" y="96">Run A</text>
+      <text class="t-label" x="36" y="118">20261003T141200Z-atin-3f9a</text>
+      <text class="t-small" x="36" y="141">episodes 0 to 199</text>
+      <text class="t-label" x="36" y="163">trajectory.start: 0</text>
+      <text class="t-small" x="36" y="185">attempt-log.jsonl: 140 entries</text>
+
+      <!-- Run B -->
+      <rect class="node ink" x="420" y="44" width="330" height="128" rx="12"/>
+      <text class="t-title" x="436" y="70">Run B</text>
+      <text class="t-label" x="436" y="92">20261003T203000Z-atin-77c1</text>
+      <text class="t-small" x="436" y="115">episodes 200 to 399</text>
+      <text class="t-label" x="436" y="137">trajectory.start: 200</text>
+      <text class="t-small" x="436" y="159">S sees run A's entries, then its own</text>
+
+      <!-- Fork -->
+      <rect class="node soft dashed" x="420" y="214" width="330" height="106" rx="12"/>
+      <text class="t-title" x="436" y="240">Run B′ · a fork</text>
+      <text class="t-label" x="436" y="262">another author, same slot</text>
+      <text class="t-small" x="436" y="285">also inherited run A's 140 entries</text>
+      <text class="t-small" x="436" y="306">flagged by simmons ls and matrix status</text>
+
+      <!-- Next -->
+      <rect class="node ink" x="840" y="110" width="240" height="128" rx="12"/>
+      <text class="t-title" x="856" y="136">The next run</text>
+      <text class="t-small" x="856" y="160">continues the longer branch</text>
+      <text class="t-small" x="856" y="181">on a tie, the earlier run id</text>
+      <text class="t-small" x="856" y="202">start: one past the highest</text>
+      <text class="t-small" x="856" y="222">index recorded so far</text>
+
+      <path class="wire team" d="M330 110 C 370 110, 380 90, 416 90" marker-end="url(#ah-team)"/>
+      <text class="t-label c-team" x="410" y="66" text-anchor="end">140 entries</text>
+      <path class="wire team" d="M330 160 C 370 160, 380 250, 416 250" marker-end="url(#ah-team)"/>
+      <text class="t-label c-team" x="342" y="300">same 140</text>
+      <path class="wire team" d="M750 110 C 790 110, 800 150, 836 150" marker-end="url(#ah-team)"/>
+      <text class="t-label c-team" x="768" y="100">log</text>
+      <path class="wire never" d="M750 268 C 800 268, 810 220, 836 210"/>
+      <text class="t-small" x="772" y="300">shorter branch: kept as data, not continued</text>
+
+      <!-- run.json excerpt -->
+      <rect class="node soft" x="20" y="222" width="310" height="98" rx="10"/>
+      <text class="t-small" x="36" y="244">Run B's run.json</text>
+      <text class="t-label" x="36" y="266">"trajectory": {"start": 200,</text>
+      <text class="t-label" x="36" y="286"> "inherited_from": [{"run_id":</text>
+      <text class="t-label" x="36" y="306"> "…-atin-3f9a", "entries": 140}]}</text>
+
+      <!-- bottom notes -->
+      <rect class="node soft" x="20" y="340" width="340" height="50" rx="10"/>
+      <text class="t-small" x="36" y="361">seed 8 is a separate trajectory:</text>
+      <text class="t-small" x="36" y="380">that is what a replicate is.</text>
+      <rect class="node soft" x="380" y="340" width="340" height="50" rx="10"/>
+      <text class="t-small" x="396" y="361">log_scope: "run" starts every run at 0</text>
+      <text class="t-small" x="396" y="380">with an empty log. Opt-in.</text>
+      <rect class="node soft" x="740" y="340" width="340" height="50" rx="10"/>
+      <text class="t-small" x="756" y="361">A scratch run may continue a committed log.</text>
+      <text class="t-small" x="756" y="380">A committed run never inherits from runs-local/.</text>
+    </svg>
+    </div>
+    <figcaption>Earlier runs are found by the same <code>config_hash</code> and seed, any status (§9.1 step 3). Episode indices are global, and the kind
+    shuffle uses stream <code>kinds/&lt;start&gt;</code>, so a continued run never repeats an episode and still has exact kind counts.
+    140 entries is the base story's 140 covert episodes with no <code>ERROR</code>; the 60 genuine stories never enter the log. (With a watchlist, <code>control</code> episodes enter it too.)
+    Run B and B′ ids are illustrative. Only one person should run a slot at a time: pull first, or use <code>matrix run</code> shards.</figcaption>
+  </figure>
+  <p class="callout decided"><span class="tag decided">decided 2026-10-03</span> One attempt log per experiment and seed, not per run.
+  <b><code>log_scope: "experiment"</code></b> is the default; <code>log_scope: "run"</code> opts into a fresh log per run.
+  In <code>simmons matrix status</code>, a later run of a filled slot shows as <code>extended</code> and a second branch as a <code>fork</code>.</p>
+</section>
+
+<section>
+  <h2>One episode record</h2>
+  <p class="sub">One line of <code>episodes.jsonl</code> (§12.4). It stores every role's structured output, every version of the message
+  and every verdict with its reason. The full request text sits beside it in <code>requests.jsonl.xz</code>.</p>
+  <div class="legend">
+    <span><i class="sw ink"></i>harness and plan</span>
+    <span><i class="sw team"></i>sender side</span>
+    <span><i class="sw guard"></i>guard</span>
+    <span><i class="sw judge"></i>judge</span>
+    <span><i class="sw lamp"></i>decided 2026-10-03</span>
+    <span><i class="ln thin"></i>note on</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 790" style="min-width:880px" role="img" aria-labelledby="f3t f3d">
+      <title id="f3t">Anatomy of one episode record</title>
+      <desc id="f3d">The record groups identity, the draw, log_seen, one call record per role, the messages list, and the decision fields. Notes explain what only the record keeps, shadow decode, the request store, the seams for later fields, and partial failures.</desc>
+
+      <text class="t-head" x="20" y="24">episodes.jsonl · ONE LINE PER EPISODE</text>
+
+      <!-- G1 identity -->
+      <rect class="node ink" x="20" y="40" width="540" height="76" rx="10"/>
+      <text class="t-head" x="36" y="62">IDENTITY</text>
+      <text class="t-code" x="36" y="84">schema · run_id · index · wave · kind</text>
+      <text class="t-small" x="36" y="104">index is global across a slot's runs</text>
+
+      <!-- G2 draw -->
+      <rect class="node ink" x="20" y="128" width="540" height="76" rx="10"/>
+      <text class="t-head" x="36" y="150">THE DRAW</text>
+      <text class="t-code" x="36" y="172">target {"index": 42, "value": "Townsville"} · protected</text>
+      <text class="t-small" x="36" y="192">copied from the plan line as {index, value}; protected only with a watchlist</text>
+
+      <!-- G3 log seen -->
+      <rect class="node team" x="20" y="216" width="540" height="76" rx="10"/>
+      <text class="t-head" x="36" y="238">LOG SEEN</text>
+      <text class="t-code" x="36" y="260">log_seen.sender · log_seen.receiver</text>
+      <text class="t-small" x="36" y="280">which attempt-log entries each role was shown</text>
+
+      <!-- G4 calls -->
+      <rect class="node ink" x="20" y="304" width="540" height="244" rx="10"/>
+      <text class="t-head" x="36" y="326">CALLS · ONE CALL RECORD PER ROLE</text>
+      <rect class="node team" x="36" y="338" width="150" height="54" rx="8"/>
+      <text class="t-code" x="48" y="359" style="font-weight:700">sender</text>
+      <text class="t-small" x="48" y="380">message only</text>
+      <rect class="node guard" x="196" y="338" width="190" height="54" rx="8"/>
+      <text class="t-code" x="208" y="359" style="font-weight:700">guard</text>
+      <text class="t-small" x="208" y="380">suspicion · guess · reason</text>
+      <rect class="node team" x="396" y="338" width="148" height="54" rx="8"/>
+      <text class="t-code" x="408" y="359" style="font-weight:700">receiver</text>
+      <text class="t-small" x="408" y="380">pick · reason</text>
+      <rect class="node judge" x="36" y="402" width="150" height="54" rx="8"/>
+      <text class="t-code" x="48" y="423" style="font-weight:700">judge</text>
+      <text class="t-small" x="48" y="444">null: code in v1</text>
+      <rect class="node team dashed" x="196" y="402" width="190" height="54" rx="8"/>
+      <text class="t-code" x="208" y="423" style="font-weight:700">shadow_receiver</text>
+      <text class="t-small" x="208" y="444">pick · reason, on a CATCH</text>
+      <rect class="node team" x="396" y="402" width="148" height="54" rx="8"/>
+      <text class="t-code" x="408" y="423" style="font-weight:700">sender_debrief</text>
+      <text class="t-small" x="408" y="444">scheme · encoding …</text>
+      <text class="t-small" x="36" y="478">each call record also holds:</text>
+      <text class="t-label" x="36" y="498">model · served_by · generation_id · attempts</text>
+      <text class="t-label" x="36" y="517">usage · cost_usd · latency_ms · request_sha256</text>
+      <text class="t-label" x="36" y="536">thinking · discarded_text</text>
+
+      <!-- G5 channel -->
+      <rect class="node team" x="20" y="560" width="540" height="76" rx="10"/>
+      <text class="t-head" x="36" y="582">THE CHANNEL</text>
+      <text class="t-code" x="36" y="604">messages[ ]: n · from · to · sent · rewritten · delivered</text>
+      <text class="t-small" x="36" y="624">one entry in v1; delivered is null when blocked</text>
+
+      <!-- G6 decision -->
+      <rect class="node guard" x="20" y="648" width="540" height="122" rx="10"/>
+      <text class="t-head" x="36" y="670">THE DECISION</text>
+      <text class="t-code" x="36" y="692">guard: mode · suspicion · threshold · blocked · guess</text>
+      <text class="t-code" x="36" y="714">pick · shadow_pick · score · outcome</text>
+      <text class="t-code" x="36" y="736">error · debrief_error · cost_usd · started_at …</text>
+      <text class="t-small" x="36" y="758">outcome: CATCH, HIT, MISS or ERROR</text>
+
+      <!-- annotations: x 620..1080 -->
+      <rect class="ann decided-ann" x="620" y="40" width="460" height="76" rx="10"/>
+      <text class="t-label c-lamp" x="636" y="62">decided 2026-10-03</text>
+      <text class="t-body" x="636" y="83">A continued run starts one past the slot's highest</text>
+      <text class="t-body" x="636" y="102">index, so no index repeats within a trajectory.</text>
+      <path class="lead" d="M620 78 H 560"/>
+
+      <rect class="ann" x="620" y="216" width="460" height="76" rx="10"/>
+      <text class="t-body" x="636" y="240">With inputs/ and the plan line, log_seen lets the</text>
+      <text class="t-body" x="636" y="259">viewer re-render each request and prove it matches</text>
+      <text class="t-body" x="636" y="278">request_sha256.</text>
+      <path class="lead" d="M620 254 H 560"/>
+
+      <rect class="ann" x="620" y="318" width="460" height="64" rx="10"/>
+      <text class="t-body" x="636" y="342">Only the record keeps G and R reasons, S's exit</text>
+      <text class="t-body" x="636" y="361">interview, thinking and discarded_text.</text>
+      <path class="lead" d="M620 365 H 544"/>
+
+      <rect class="ann decided-ann" x="620" y="396" width="460" height="86" rx="10"/>
+      <text class="t-label c-lamp" x="636" y="418">decided 2026-10-03 · shadow_decode on</text>
+      <text class="t-body" x="636" y="439">On a CATCH, R reads the blocked message in a separate</text>
+      <text class="t-body" x="636" y="458">call. shadow_pick is recorded; outcome stays CATCH.</text>
+      <path class="lead" d="M620 429 H 544"/>
+
+      <rect class="ann" x="620" y="494" width="460" height="54" rx="10"/>
+      <text class="t-body" x="636" y="516">Full request text: requests.jsonl.xz, one line per</text>
+      <text class="t-body" x="636" y="535">call attempt, keyed by request_sha256.</text>
+      <path class="lead" d="M620 521 H 404"/>
+      <circle class="junction" cx="404" cy="521" r="3"/>
+
+      <rect class="ann" x="620" y="560" width="460" height="76" rx="10"/>
+      <text class="t-body" x="636" y="583">Seams for later fields: messages is a list, and</text>
+      <text class="t-body" x="636" y="602">rewritten is the active warden's slot (null in v1).</text>
+      <text class="t-body" x="636" y="621">Later fields add entries, never a new format.</text>
+      <path class="lead" d="M620 598 H 560"/>
+
+      <rect class="ann" x="620" y="648" width="460" height="76" rx="10"/>
+      <text class="t-body" x="636" y="671">Every stage that succeeded is kept. If R fails after a</text>
+      <text class="t-body" x="636" y="690">valid guard decision, the guard's numbers still count</text>
+      <text class="t-body" x="636" y="709">and error.role is receiver.</text>
+      <path class="lead" d="M620 686 H 560"/>
+    </svg>
+    </div>
+    <figcaption><code>calls.sender_debrief</code> is S's exit interview (§11.6): <code>scheme</code>, <code>encoding</code>, <code>expected_decode</code>, <code>confidence</code>; in the spec's example, scheme "garrison-town detail" at confidence 0.6. It is <code>null</code> on plain episodes. Only <code>calls.sender.output.message</code> travels: the harness copies it into <code>messages[0].sent</code> and into the guard's and
+    receiver's views. On plain episodes, <code>calls.sender.role</code> is <code>plain_sender</code>. <code>plan.jsonl</code> stores indices into the
+    episode's options; the episode record stores each as <code>{index, value}</code>, which is also the shape open payloads will need.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>How a run is identified</h2>
+  <p class="sub">Every id is a SHA-256 of canonical JSON, with each file replaced by the hash of its bytes (§6.3). Ids decide what pools and what compares.</p>
+  <div class="legend">
+    <span><i class="sw team"></i>sender side</span>
+    <span><i class="sw guard"></i>guard side</span>
+    <span><i class="sw ink"></i>everything else</span>
+    <span><i class="ln"></i>hashed into</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 560" style="min-width:880px" role="img" aria-labelledby="f4t f4d">
+      <title id="f4t">Run identity hashes</title>
+      <desc id="f4d">sender_id covers P1 and the sender and receiver models. guard_id covers P2, the guard model and the guard settings. arena_hash covers every other field. Together they are config_hash, the cell. name, description, seed and max_cost_usd are never identity. plan_hash proves two runs drew the same episodes.</desc>
+
+      <rect class="node team" x="20" y="30" width="230" height="210" rx="12"/>
+      <text class="t-title" x="36" y="56">Sender side</text>
+      <text class="t-label" x="36" y="84">P₁ content</text>
+      <text class="t-label" x="36" y="106">models.sender</text>
+      <text class="t-label" x="36" y="128">models.receiver</text>
+      <text class="t-small" x="36" y="156">models in resolved form, so</text>
+      <text class="t-small" x="36" y="175">an alias and its slug hash</text>
+      <text class="t-small" x="36" y="194">the same</text>
+
+      <rect class="node guard" x="270" y="30" width="250" height="210" rx="12"/>
+      <text class="t-title" x="286" y="56">Guard side</text>
+      <text class="t-label" x="286" y="84">P₂ content</text>
+      <text class="t-label" x="286" y="106">models.guard</text>
+      <text class="t-label" x="286" y="128">guard_output</text>
+      <text class="t-label" x="286" y="150">block_threshold</text>
+      <text class="t-label" x="286" y="172">guard_guesses_target</text>
+      <text class="t-small" x="286" y="200">block_threshold counts in</text>
+      <text class="t-small" x="286" y="219">suspicion mode only</text>
+
+      <rect class="node ink" x="540" y="30" width="260" height="210" rx="12"/>
+      <text class="t-title" x="556" y="56">Everything else</text>
+      <text class="t-label" x="556" y="84">option_set · cover_task</text>
+      <text class="t-label" x="556" y="104">templates · counts · rates</text>
+      <text class="t-label" x="556" y="124">visibility knobs</text>
+      <text class="t-label" x="556" y="144">log_records · log_scope</text>
+      <text class="t-label" x="556" y="164">wave_size · shadow_decode</text>
+      <text class="t-label" x="556" y="184">plain prompt and model</text>
+      <text class="t-label" x="556" y="204">purpose</text>
+      <text class="t-label" x="556" y="224">PROTOCOL_VERSION</text>
+
+      <rect class="node soft dashed" x="820" y="30" width="260" height="210" rx="12"/>
+      <text class="t-title" x="836" y="56">Never identity</text>
+      <text class="t-label" x="836" y="84">name · description</text>
+      <text class="t-label" x="836" y="106">seed · max_cost_usd</text>
+      <text class="t-label" x="836" y="128">_ keys</text>
+      <text class="t-label" x="836" y="160">episodes</text>
+      <text class="t-small" x="836" y="182">joins the hashes only under</text>
+      <text class="t-small" x="836" y="201">log_scope: "run" with history</text>
+      <text class="t-small" x="836" y="220">in play</text>
+
+      <!-- id pills -->
+      <rect class="pill-id team" x="65" y="270" width="140" height="34" rx="17"/>
+      <text class="t-code" x="135" y="292" text-anchor="middle">sender_id</text>
+      <text class="t-small" x="215" y="292">grid rows</text>
+      <rect class="pill-id guard" x="325" y="270" width="140" height="34" rx="17"/>
+      <text class="t-code" x="395" y="292" text-anchor="middle">guard_id</text>
+      <text class="t-small" x="475" y="292">grid columns</text>
+      <rect class="pill-id ink" x="600" y="270" width="140" height="34" rx="17"/>
+      <text class="t-code" x="670" y="292" text-anchor="middle">arena_hash</text>
+      <text class="t-small" x="750" y="292">which runs compare</text>
+
+      <path class="wire team" d="M135 240 V 266" marker-end="url(#ah-team)"/>
+      <path class="wire guard" d="M395 240 V 266" marker-end="url(#ah-guard)"/>
+      <path class="wire" d="M670 240 V 266" marker-end="url(#ah-ink)"/>
+
+      <!-- plan hash -->
+      <rect class="node soft" x="880" y="262" width="200" height="88" rx="10"/>
+      <text class="t-code" x="896" y="286">plan_hash</text>
+      <text class="t-small" x="896" y="308">the bytes of plan.jsonl</text>
+      <text class="t-small" x="896" y="327">proves two runs drew</text>
+      <text class="t-small" x="896" y="345">the same episodes</text>
+
+      <!-- config hash -->
+      <path class="wire team" d="M135 304 V 376" marker-end="url(#ah-team)"/>
+      <path class="wire guard" d="M395 304 V 376" marker-end="url(#ah-guard)"/>
+      <path class="wire" d="M670 304 V 376" marker-end="url(#ah-ink)"/>
+      <rect class="node lampish" x="60" y="380" width="700" height="66" rx="12"/>
+      <text class="t-code" x="80" y="406" style="font-weight:700">config_hash</text>
+      <text class="t-title" x="178" y="406">= the cell</text>
+      <text class="t-small" x="80" y="430">the union of sender_id, guard_id and arena_hash. Runs with one config_hash pool.</text>
+
+      <!-- slot -->
+      <path class="wire ctl" d="M410 446 V 476" marker-end="url(#ah-ink)"/>
+      <rect class="node ink" x="160" y="480" width="500" height="62" rx="12"/>
+      <text class="t-title" x="180" y="505">config_hash + seed = a slot</text>
+      <text class="t-small" x="180" y="527">one trajectory: its runs continue one attempt log</text>
+      <rect class="stripe" x="160" y="480" width="6" height="62" rx="3"/>
+
+      <!-- mini grid -->
+      <rect class="node soft" x="800" y="380" width="280" height="162" rx="12" data-bg=""/>
+      <text class="t-small" x="816" y="402">one arena: guard_id →</text>
+      <g class="mini">
+        <rect x="836" y="414" width="68" height="30" rx="4"/>
+        <rect x="910" y="414" width="68" height="30" rx="4"/>
+        <rect x="984" y="414" width="68" height="30" rx="4"/>
+        <rect x="836" y="450" width="68" height="30" rx="4"/>
+        <rect class="hot" x="910" y="450" width="68" height="30" rx="4"/>
+        <rect x="984" y="450" width="68" height="30" rx="4"/>
+        <rect x="836" y="486" width="68" height="30" rx="4"/>
+        <rect x="910" y="486" width="68" height="30" rx="4"/>
+        <rect x="984" y="486" width="68" height="30" rx="4"/>
+      </g>
+      <text class="t-small" x="816" y="534">sender_id ↓ · one cell = one config_hash</text>
+      <path class="wire muted ctl" d="M760 413 C 830 413, 880 465, 906 465" marker-end="url(#ah-muted)"/>
+    </svg>
+    </div>
+    <figcaption>Short forms are the first 8 hex characters (<code>"ids": {"config": "c41a9e02", "arena": "a9e01f33", ...}</code> in <code>run.json</code>).
+    A matrix name and cell key are provenance, not identity: two runs with one <code>config_hash</code> pool, whoever ran them and however.
+    <code>validate</code> and <code>ls</code> re-resolve each run's experiment and flag a run whose hash no longer matches.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Four people, one grid, no merge conflicts</h2>
+  <p class="sub">Each run lands in a new directory named with its author, so a push only ever adds files. Nothing derived is committed, so there is nothing to merge.</p>
+  <div class="legend">
+    <span><i class="sw ink"></i>a person's machine</span>
+    <span><i class="sw rc"></i>committed</span>
+    <span><i class="sw rl"></i>gitignored</span>
+    <span><i class="ln"></i>data</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 425" style="min-width:880px" role="img" aria-labelledby="f5t f5d">
+      <title id="f5t">How four people's runs combine</title>
+      <desc id="f5d">Four people each run experiments on their own machine. Each run writes a new directory whose id includes the author. Each person pulls with rebase and pushes, which only adds directories to origin main. Anyone pulls and runs simmons grid, dataset or pivot, which rebuild from the files and write to the gitignored results directory.</desc>
+
+      <text class="t-head" x="20" y="24">EACH PERSON, OWN MACHINE</text>
+      <!-- people rows -->
+      <rect class="node ink" x="20" y="40" width="110" height="70" rx="10"/>
+      <text class="t-role" x="36" y="70">atin</text>
+      <text class="t-small" x="36" y="92">simmons run</text>
+      <rect class="row-c" x="160" y="40" width="250" height="70" rx="10"/>
+      <text class="t-label" x="174" y="68">runs/reference/</text>
+      <text class="t-label" x="174" y="90">20261003T141200Z-atin-3f9a</text>
+      <path class="wire" d="M130 75 H 156" marker-end="url(#ah-ink)"/>
+
+      <rect class="node ink" x="20" y="130" width="110" height="70" rx="10"/>
+      <text class="t-role" x="36" y="160">person B</text>
+      <text class="t-small" x="36" y="182">simmons run</text>
+      <rect class="row-c" x="160" y="130" width="250" height="70" rx="10"/>
+      <text class="t-label" x="174" y="158">runs/mirror/</text>
+      <text class="t-label" x="174" y="180">&lt;utc&gt;-&lt;author&gt;-0b41</text>
+      <path class="wire" d="M130 165 H 156" marker-end="url(#ah-ink)"/>
+
+      <rect class="node ink" x="20" y="220" width="110" height="70" rx="10"/>
+      <text class="t-role" x="36" y="250">person C</text>
+      <text class="t-small" x="36" y="272">simmons run</text>
+      <rect class="row-c" x="160" y="220" width="250" height="70" rx="10"/>
+      <text class="t-label" x="174" y="248">runs/assoc-v3/</text>
+      <text class="t-label" x="174" y="270">&lt;utc&gt;-&lt;author&gt;-77c1</text>
+      <path class="wire" d="M130 255 H 156" marker-end="url(#ah-ink)"/>
+
+      <rect class="node ink" x="20" y="310" width="110" height="70" rx="10"/>
+      <text class="t-role" x="36" y="340">person D</text>
+      <text class="t-small" x="36" y="362">simmons run</text>
+      <rect class="row-c" x="160" y="310" width="250" height="70" rx="10"/>
+      <text class="t-label" x="174" y="338">runs/guard-v6-vs-ref/</text>
+      <text class="t-label" x="174" y="360">&lt;utc&gt;-&lt;author&gt;-c19e</text>
+      <path class="wire" d="M130 345 H 156" marker-end="url(#ah-ink)"/>
+
+      <!-- push arrows -->
+      <path class="wire" d="M410 75 C 460 75, 470 160, 516 175" marker-end="url(#ah-ink)"/>
+      <path class="wire" d="M410 165 C 450 165, 470 195, 516 200" marker-end="url(#ah-ink)"/>
+      <path class="wire" d="M410 255 C 450 255, 470 228, 516 225" marker-end="url(#ah-ink)"/>
+      <path class="wire" d="M410 345 C 460 345, 470 265, 516 250" marker-end="url(#ah-ink)"/>
+      <text class="t-label" x="524" y="98">git pull --rebase,</text>
+      <text class="t-label" x="524" y="118">then git push</text>
+
+      <!-- origin -->
+      <rect class="row-c" x="520" y="130" width="230" height="170" rx="12"/>
+      <text class="t-code" x="538" y="158" style="font-weight:700">origin/main</text>
+      <text class="t-small" x="538" y="184">only new directories arrive</text>
+      <text class="t-small" x="538" y="205">no file is written by two people</text>
+      <text class="t-small" x="538" y="226">nothing generated is committed</text>
+      <text class="t-small" x="538" y="247">never force-push</text>
+      <text class="t-small" x="538" y="280">run ids carry the author</text>
+
+      <path class="wire" d="M750 190 H 816" marker-end="url(#ah-ink)"/>
+      <text class="t-label" x="784" y="180" text-anchor="middle">git pull</text>
+
+      <!-- anyone -->
+      <rect class="node ink" x="820" y="40" width="260" height="250" rx="12"/>
+      <text class="t-title" x="838" y="66">Anyone, any clone</text>
+      <rect class="node judge" x="838" y="82" width="224" height="40" rx="8"/>
+      <text class="t-code" x="852" y="107">simmons grid</text>
+      <rect class="node judge" x="838" y="130" width="224" height="40" rx="8"/>
+      <text class="t-code" x="852" y="155">simmons dataset</text>
+      <rect class="node judge" x="838" y="178" width="224" height="40" rx="8"/>
+      <text class="t-code" x="852" y="203">simmons pivot</text>
+      <text class="t-small" x="838" y="243">scans runs/*/*/ and rebuilds</text>
+      <text class="t-small" x="838" y="263">from the files, every time</text>
+
+      <path class="wire" d="M950 290 V 336" marker-end="url(#ah-ink)"/>
+      <text class="t-label" x="960" y="318">writes</text>
+      <rect class="row-l" x="820" y="340" width="260" height="70" rx="12"/>
+      <text class="t-code" x="838" y="366">results/</text>
+      <text class="t-small" x="838" y="390">gitignored, regenerated</text>
+    </svg>
+    </div>
+    <figcaption>Run ids are <code>&lt;UTC yyyymmddThhmmssZ&gt;-&lt;author&gt;-&lt;4 random hex&gt;</code>; the author comes from <code>SIMMONS_AUTHOR</code>,
+    else a slug of <code>git config user.name</code>. Only atin's id is the spec's example; the others are illustrative.
+    Runs with the same arena, sender and guard pool across seeds and people.</figcaption>
+  </figure>
+
+  <div class="cards">
+    <div class="card"><h3>Content is append-only</h3><p>Add new prompt, experiment and cover-task files. Never edit one a committed run used: make <code>v&lt;N+1&gt;</code>.
+      <code>simmons validate</code> fails when a file differs from a committed run's snapshot.</p></div>
+    <div class="card"><h3>Hands off others' runs</h3><p>Never edit or delete another person's run directory or personal folder.
+      Names are unique by path; a clash shows up as a loud git add/add conflict.</p></div>
+    <div class="card lamp"><h3>One person per slot</h3><p>Two runs that inherit the same history are a fork. Pull before running a slot by hand;
+      <code>matrix run</code> shards guarantee it for matrices. Both branches stay valid data.</p></div>
+  </div>
+
+  <p class="sub" style="margin-top:18px">What anyone sees after a pull: the grid, rebuilt from everyone's runs (§14.3, the spec's example numbers).</p>
+  <pre class="cmd"><span class="p">$ </span>simmons grid
+<span class="o">arena a9e01f33 · australian-cities · foreign-affairs-news · 100 options
+sender ↓ · guard →                       reference · claude-sonnet-5.5    guard-v2 · claude-sonnet-5.5
+reference · claude-sonnet-5.5                   6%  FA 3%  (n=140)        3%  FA 8%  (n=140)
+associations-v3 · claude-sonnet-5.5             31% FA 3%  (n=280)        22% FA 8%  (n=140)
+empty · claude-sonnet-5.5                       2%  FA 3%  (n=140)        ·</span></pre>
+  <p class="sub" style="margin-top:8px">The <code>empty</code> row is the mirror test. Lift over it is a sender's row minus the <code>empty</code> row. The spec marks the unrun matchup with a dash; it is shown here as a dot. The spec's header also ends "10 protected", a leftover from the watchlist, dropped here <span class="tag open">open</span>.</p>
+</section>
+
+<section>
+  <h2>Reading a run: where to look, in order</h2>
+  <p class="sub">An agent must be able to answer "what happened?" from files alone (§20). Stop at the first step that answers it.</p>
+  <div class="legend">
+    <span><i class="sw rc"></i>committed: on every clone</span>
+    <span><i class="sw rl"></i>local: only where the run ran</span>
+    <span><i class="ln ctl"></i>not answered yet: go on</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 200" style="min-width:880px" role="img" aria-labelledby="f6t f6d">
+      <title id="f6t">Where to look, in order</title>
+      <desc id="f6d">First run.json for status and spend, then summary.json for counts and errors, then simmons show for one episode, then events.jsonl for the timeline and retries, then calls.jsonl for raw provider traffic.</desc>
+      <rect class="row-c" x="20" y="30" width="190" height="140" rx="12"/>
+      <text class="t-id c-ink" x="36" y="62">1</text>
+      <text class="t-code" x="36" y="90" style="font-weight:700">run.json</text>
+      <text class="t-small" x="36" y="114">status, spend</text>
+      <text class="t-small" x="36" y="134">did it finish, what did</text>
+      <text class="t-small" x="36" y="153">it cost</text>
+
+      <rect class="row-c" x="232" y="30" width="190" height="140" rx="12"/>
+      <text class="t-id c-ink" x="248" y="62">2</text>
+      <text class="t-code" x="248" y="90" style="font-weight:700">summary.json</text>
+      <text class="t-small" x="248" y="114">counts, errors</text>
+      <text class="t-small" x="248" y="134">outcomes by kind,</text>
+      <text class="t-small" x="248" y="153">rates with intervals</text>
+
+      <rect class="row-c" x="444" y="30" width="190" height="140" rx="12"/>
+      <text class="t-id c-ink" x="460" y="62">3</text>
+      <text class="t-code" x="460" y="90" style="font-weight:700">simmons show</text>
+      <text class="t-label" x="460" y="112">&lt;run&gt; --episode N</text>
+      <text class="t-small" x="460" y="134">one episode, readable</text>
+      <text class="t-small" x="460" y="153">--prompt: what a role got</text>
+
+      <rect class="row-l" x="656" y="30" width="190" height="140" rx="12"/>
+      <text class="t-id c-ink" x="672" y="62">4</text>
+      <text class="t-code" x="672" y="90" style="font-weight:700">events.jsonl</text>
+      <text class="t-small" x="672" y="114">timeline, retries, and</text>
+      <text class="t-small" x="672" y="134">the validation error</text>
+      <text class="t-small" x="672" y="153">behind each format retry</text>
+
+      <rect class="row-l" x="868" y="30" width="190" height="140" rx="12"/>
+      <text class="t-id c-ink" x="884" y="62">5</text>
+      <text class="t-code" x="884" y="90" style="font-weight:700">calls.jsonl</text>
+      <text class="t-small" x="884" y="114">raw provider traffic</text>
+      <text class="t-small" x="884" y="134">first stop when a</text>
+      <text class="t-small" x="884" y="153">provider misbehaves</text>
+
+      <path class="wire ctl" d="M210 100 H 228" marker-end="url(#ah-ink)"/>
+      <path class="wire ctl" d="M422 100 H 440" marker-end="url(#ah-ink)"/>
+      <path class="wire ctl" d="M634 100 H 652" marker-end="url(#ah-ink)"/>
+      <path class="wire ctl" d="M846 100 H 864" marker-end="url(#ah-ink)"/>
+    </svg>
+    </div>
+    <figcaption>Steps 4 and 5 are gitignored: they exist only on the machine that ran the run. From a fresh clone, steps 1 to 3 are what you have.
+    API keys are never logged. Rendered prompts live only in <code>requests.jsonl</code> and <code>requests.jsonl.xz</code>, never in events.</figcaption>
+  </figure>
+
+  <h3 style="margin-top:22px">Every rate is an object, never a bare number</h3>
+  <p class="sub">Each rate in <code>summary.json</code> carries its counts and a Wilson 95% interval. This is <code>hit_rate</code> from the spec's example summary (§12.6), which is a watchlist scenario.</p>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 170" style="min-width:880px" role="img" aria-labelledby="f7t f7d">
+      <title id="f7t">A rate object</title>
+      <desc id="f7d">hit_rate value 0.129, 18 of 139, with a Wilson interval from 0.084 to 0.195, drawn on an axis from 0 to 30 percent.</desc>
+      <text class="t-code" x="20" y="30">"hit_rate": {"value": 0.129, "num": 18, "den": 139, "lo": 0.084, "hi": 0.195}</text>
+      <line x1="60" y1="110" x2="1040" y2="110" stroke="var(--line)" stroke-width="2"/>
+      <g class="ticks">
+        <line x1="60" y1="104" x2="60" y2="116"/><text class="t-small" x="60" y="136" text-anchor="middle">0%</text>
+        <line x1="386.7" y1="104" x2="386.7" y2="116"/><text class="t-small" x="386.7" y="136" text-anchor="middle">10%</text>
+        <line x1="713.3" y1="104" x2="713.3" y2="116"/><text class="t-small" x="713.3" y="136" text-anchor="middle">20%</text>
+        <line x1="1040" y1="104" x2="1040" y2="116"/><text class="t-small" x="1040" y="136" text-anchor="middle">30%</text>
+      </g>
+      <rect class="ci" x="334.4" y="98" width="362.6" height="24" rx="6"/>
+      <line x1="481.4" y1="92" x2="481.4" y2="128" stroke="var(--team)" stroke-width="3"/>
+      <text class="t-label" x="334.4" y="84" text-anchor="middle">lo 0.084</text>
+      <text class="t-label c-team" x="481.4" y="70" text-anchor="middle" style="font-weight:700">value 0.129 = 18 / 139</text>
+      <text class="t-label" x="697" y="84" text-anchor="middle">hi 0.195</text>
+      <text class="t-small" x="60" y="162">den is the eligible population: 139 covert episodes here, because one covert episode ended in ERROR before the guard decided.</text>
+    </svg>
+    </div>
+    <figcaption>Readers recompute from <code>episodes.jsonl</code> unless <code>summary.json</code> carries the same <code>episodes_sha256</code> and
+    <code>protocol_version</code>, so a stale summary can never disagree with the curve beside it.</figcaption>
+  </figure>
+
+  <h3 style="margin-top:22px">Schema versions</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Every record carries</th><th>Types</th><th>Rule</th></tr></thead>
+      <tbody>
+        <tr><td class="f">"schema": "simmons.&lt;type&gt;/&lt;major&gt;"</td>
+          <td class="f">run · plan · episode · attempt · summary · spend · coverage</td>
+          <td>Readers refuse a major version they do not know. Adding a field keeps the major; renaming or removing one bumps it.
+          JSONL lines may be out of order within a wave: readers sort by <code>index</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer class="pager">
+  <a href="visibility.html">← 3 · Who sees what</a>
+  <a href="spend.html">5 · Spend →</a>
+  <span class="src">Source: docs/SPEC.md §2 Q21, §5, §6.3, §8, §9.1, §9.7, §12, §14.1, §14.3, §20 at commit d2bc655 (origin/main), plus Atin's decisions of 2026-10-03. Where they differ, the decisions win.</span>
+</footer>
+
+</div>
+</body>
+</html>

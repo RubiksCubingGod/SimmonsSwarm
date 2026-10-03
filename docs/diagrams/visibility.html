@@ -1,0 +1,802 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Who sees what · SimmonsSwarm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+/* Theme: ?theme=light|dark wins, then the saved choice, then the system setting. */
+(function () {
+  var root = document.documentElement;
+  function apply(t) {
+    if (t === "light" || t === "dark") root.setAttribute("data-theme", t);
+    else { root.removeAttribute("data-theme"); t = "auto"; }
+    var b = document.getElementById("theme-btn");
+    if (b) b.textContent = "Theme: " + t;
+  }
+  var q = null, saved = null;
+  try { q = new URLSearchParams(location.search).get("theme"); } catch (e) {}
+  try { saved = localStorage.getItem("simmons-theme"); } catch (e) {}
+  var start = q || saved || "auto";
+  apply(start);
+  window.cycleTheme = function () {
+    var cur = root.getAttribute("data-theme") || "auto";
+    var next = cur === "auto" ? "light" : cur === "light" ? "dark" : "auto";
+    apply(next);
+    try { localStorage.setItem("simmons-theme", next); } catch (e) {}
+  };
+  document.addEventListener("DOMContentLoaded", function () { apply(root.getAttribute("data-theme") || "auto"); });
+})();
+</script>
+<style>
+/* ===== SimmonsSwarm diagram set: shared base (keep identical across pages) ===== */
+:root {
+  --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --bg: #f6f4ef; --panel: #ffffff; --panel-2: #f0eee8;
+  --ink: #1b1f24; --ink-2: #3a414b; --muted: #6b7380; --line: #d9d5cc;
+  --team: #0f7f73; --team-soft: rgba(15, 127, 115, 0.10);
+  --guard: #c4362c; --guard-soft: rgba(196, 54, 44, 0.09);
+  --judge: #6d4fd6; --judge-soft: rgba(109, 79, 214, 0.10);
+  --plain: #5a6577; --plain-soft: rgba(90, 101, 119, 0.10);
+  --hit: #1a7f37; --hit-soft: rgba(26, 127, 55, 0.10);
+  --miss: #9a6700; --miss-soft: rgba(154, 103, 0, 0.10);
+  --catch: #c4362c;
+  --lamp: #e8a317; --lamp-soft: rgba(232, 163, 23, 0.14); --lamp-ink: #8a5a00;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1015; --panel: #151a21; --panel-2: #1b212a;
+    --ink: #e8ebf0; --ink-2: #c3c9d3; --muted: #8b95a5; --line: #2a313c;
+    --team: #35c4b2; --team-soft: rgba(53, 196, 178, 0.10);
+    --guard: #f0635a; --guard-soft: rgba(240, 99, 90, 0.10);
+    --judge: #a78bfa; --judge-soft: rgba(167, 139, 250, 0.12);
+    --plain: #9aa6b8; --plain-soft: rgba(154, 166, 184, 0.10);
+    --hit: #4ac15e; --hit-soft: rgba(74, 193, 94, 0.10);
+    --miss: #e0a43a; --miss-soft: rgba(224, 164, 58, 0.10);
+    --catch: #f0635a;
+    --lamp: #ffbf3c; --lamp-soft: rgba(255, 191, 60, 0.12); --lamp-ink: #ffbf3c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1015; --panel: #151a21; --panel-2: #1b212a;
+  --ink: #e8ebf0; --ink-2: #c3c9d3; --muted: #8b95a5; --line: #2a313c;
+  --team: #35c4b2; --team-soft: rgba(53, 196, 178, 0.10);
+  --guard: #f0635a; --guard-soft: rgba(240, 99, 90, 0.10);
+  --judge: #a78bfa; --judge-soft: rgba(167, 139, 250, 0.12);
+  --plain: #9aa6b8; --plain-soft: rgba(154, 166, 184, 0.10);
+  --hit: #4ac15e; --hit-soft: rgba(74, 193, 94, 0.10);
+  --miss: #e0a43a; --miss-soft: rgba(224, 164, 58, 0.10);
+  --catch: #f0635a;
+  --lamp: #ffbf3c; --lamp-soft: rgba(255, 191, 60, 0.12); --lamp-ink: #ffbf3c;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 16px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--team); }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 72px; }
+@media (max-width: 640px) { .wrap { padding: 0 16px 48px; } }
+
+/* top navigation */
+.topnav { display: flex; align-items: center; gap: 10px 18px; flex-wrap: wrap; padding: 14px 0; margin-bottom: 26px; border-bottom: 1px solid var(--line); }
+.topnav .brand { font: 700 15px var(--sans); color: var(--ink); text-decoration: none; white-space: nowrap; }
+.topnav .brand span { color: var(--muted); font-weight: 500; }
+.navlinks { display: flex; gap: 4px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.navlinks::-webkit-scrollbar { display: none; }
+.navlinks a { font: 500 13.5px var(--sans); color: var(--ink-2); text-decoration: none; padding: 5px 10px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; }
+.navlinks a:hover { border-color: var(--line); }
+.navlinks a[aria-current="page"] { background: var(--panel); border-color: var(--line); color: var(--ink); font-weight: 600; }
+.navlinks a .n { font-family: var(--mono); color: var(--muted); margin-right: 5px; }
+#theme-btn { font: 500 12.5px var(--mono); color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; width: 17ch; white-space: nowrap; text-align: center; cursor: pointer; }
+@media (max-width: 760px) { .navlinks { order: 3; flex-basis: 100%; } }
+
+/* page header */
+header.page { margin-bottom: 22px; }
+h1 { font: 700 34px/1.12 var(--sans); letter-spacing: -0.01em; margin: 0 0 10px; }
+@media (max-width: 640px) { h1 { font-size: 28px; } }
+.lede { color: var(--ink-2); margin: 0; max-width: 760px; font-size: 16.5px; }
+.meta { margin: 10px 0 0; font: 500 12.5px var(--mono); color: var(--muted); }
+h2 { font: 700 21px/1.25 var(--sans); margin: 0 0 8px; }
+h3 { font: 700 16px/1.3 var(--sans); margin: 0 0 6px; }
+section { margin: 0 0 44px; }
+.sub { color: var(--muted); font-size: 14.5px; margin: 0 0 14px; max-width: 820px; }
+p { max-width: 820px; }
+code, .mono { font-family: var(--mono); font-size: 0.9em; }
+
+/* figures */
+figure.diagram { margin: 0 0 14px; padding: 16px 16px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; }
+.fig-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+figure.diagram svg { display: block; width: 100%; height: auto; }
+figcaption { color: var(--muted); font-size: 13.5px; margin: 8px 2px 0; max-width: 900px; }
+.scroll-hint { display: none; font: 500 12px var(--mono); color: var(--muted); margin: 0 0 6px; }
+@media (max-width: 760px) { .scroll-hint { display: block; } }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 13px; color: var(--ink-2); margin: 0 0 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
+.sw.team { background: var(--team); } .sw.guard { background: var(--guard); } .sw.judge { background: var(--judge); }
+.sw.plain { background: var(--plain); } .sw.lamp { background: var(--lamp); } .sw.ink { background: var(--ink-2); }
+.sw.hit { background: var(--hit); } .sw.miss { background: var(--miss); } .sw.catch { background: var(--catch); }
+.sw.iter { border: 1.5px dashed var(--muted); background: transparent; }
+.ln { width: 26px; height: 0; border-top: 2.2px solid var(--ink-2); display: inline-block; }
+.ln.ctl { border-top-style: dashed; }
+
+/* SVG vocabulary (shared with diagram.html) */
+.node { fill: var(--panel); stroke: var(--line); stroke-width: 2; }
+.node.team { stroke: var(--team); fill: var(--team-soft); }
+.node.guard { stroke: var(--guard); fill: var(--guard-soft); }
+.node.judge { stroke: var(--judge); fill: var(--judge-soft); }
+.node.plain { stroke: var(--plain); fill: var(--plain-soft); }
+.node.lamp { stroke: var(--lamp); fill: var(--lamp-soft); }
+.node.hit { stroke: var(--hit); fill: var(--hit-soft); }
+.node.miss { stroke: var(--miss); fill: var(--miss-soft); }
+.node.ink { stroke: var(--ink-2); fill: var(--panel); }
+.node.soft { stroke: var(--line); fill: var(--panel-2); stroke-width: 1.5; }
+.prompt { stroke-width: 1.6; stroke-dasharray: 6 5; fill: var(--panel); }
+.prompt.team { stroke: var(--team); } .prompt.guard { stroke: var(--guard); } .prompt.plain { stroke: var(--plain); }
+.t-id { font: 700 24px var(--mono); }
+.t-id.team { fill: var(--team); } .t-id.guard { fill: var(--guard); }
+.t-id.judge { fill: var(--judge); } .t-id.plain { fill: var(--plain); }
+.t-role { font: 600 15px var(--sans); fill: var(--ink); }
+.t-title { font: 600 14.5px var(--sans); fill: var(--ink); }
+.t-small { font: 12.5px var(--sans); fill: var(--muted); }
+.t-body { font: 13px var(--sans); fill: var(--ink-2); }
+.t-label { font: 500 12.5px var(--mono); fill: var(--ink-2); }
+.t-code { font: 500 12.5px var(--mono); fill: var(--ink); }
+.t-head { font: 700 12px var(--mono); letter-spacing: 0.08em; fill: var(--muted); }
+/* colour classes: after the type classes, and scoped to svg, so .c-* always beats .t-small and .t-label */
+svg .c-team { fill: var(--team); } svg .c-guard { fill: var(--guard); } svg .c-judge { fill: var(--judge); } svg .c-plain { fill: var(--plain); }
+svg .c-lamp { fill: var(--lamp-ink); } svg .c-hit { fill: var(--hit); } svg .c-miss { fill: var(--miss); } svg .c-catch { fill: var(--catch); }
+svg .c-muted { fill: var(--muted); } svg .c-ink { fill: var(--ink); }
+.wire { fill: none; stroke-width: 2.2; stroke: var(--ink-2); }
+.wire.team { stroke: var(--team); } .wire.guard { stroke: var(--guard); } .wire.judge { stroke: var(--judge); }
+.wire.plain { stroke: var(--plain); } .wire.hit { stroke: var(--hit); } .wire.miss { stroke: var(--miss); }
+.wire.lamp { stroke: var(--lamp); } .wire.muted { stroke: var(--muted); }
+.wire.ctl { stroke-dasharray: 6 5; stroke-width: 1.8; }
+.wire.never { stroke: var(--muted); stroke-dasharray: 2 5; stroke-linecap: round; stroke-width: 2; }
+.f-team { fill: var(--team); } .f-ink { fill: var(--ink-2); } .f-guard { fill: var(--guard); } .f-judge { fill: var(--judge); }
+.f-plain { fill: var(--plain); } .f-hit { fill: var(--hit); } .f-miss { fill: var(--miss); } .f-muted { fill: var(--muted); } .f-lamp { fill: var(--lamp); }
+.xdot { fill: var(--panel); stroke: var(--guard); stroke-width: 1.8; }
+.xmark { fill: none; stroke: var(--guard); stroke-width: 2.2; stroke-linecap: round; }
+.badge { stroke-width: 2; fill: var(--panel); }
+.badge.catch { fill: var(--guard-soft); stroke: var(--catch); } .badge.hit { stroke: var(--hit); } .badge.miss { stroke: var(--miss); }
+.t-badge { font: 700 14px var(--mono); letter-spacing: 0.06em; }
+.t-badge.catch { fill: var(--catch); } .t-badge.hit { fill: var(--hit); } .t-badge.miss { fill: var(--miss); }
+.junction { fill: var(--muted); }
+
+/* cards, tables, callouts */
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.cards.two { grid-template-columns: repeat(2, 1fr); }
+.cards.four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) { .cards.four { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 820px) { .cards, .cards.two { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .cards.four { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; border-top: 4px solid var(--line); }
+.card.team { border-top-color: var(--team); } .card.guard { border-top-color: var(--guard); } .card.judge { border-top-color: var(--judge); }
+.card.plain { border-top-color: var(--plain); } .card.lamp { border-top-color: var(--lamp); } .card.hit { border-top-color: var(--hit); }
+.card.miss { border-top-color: var(--miss); } .card.catch { border-top-color: var(--catch); }
+.card p { margin: 0 0 6px; color: var(--ink-2); font-size: 14.5px; }
+.card .k { font: 500 12.5px var(--mono); color: var(--muted); }
+.table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th { font: 600 12.5px var(--sans); color: var(--muted); background: var(--panel-2); }
+tbody tr:last-child td, tbody tr:last-child th { border-bottom: 0; }
+td.f, .fld { font: 500 12.5px var(--mono); color: var(--ink); white-space: nowrap; }
+.callout { margin: 14px 0 0; padding: 12px 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--line); color: var(--ink-2); font-size: 14.5px; max-width: 900px; }
+.callout b { color: var(--ink); }
+.callout.decided { border-left-color: var(--lamp); }
+.callout.open { border: 1px dashed var(--muted); border-left: 4px dashed var(--muted); }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font: 600 11.5px var(--mono); letter-spacing: 0.03em; white-space: nowrap; vertical-align: 1px; }
+.tag.decided { color: var(--lamp-ink); border: 1.5px solid var(--lamp); }
+.tag.open { color: var(--muted); border: 1.5px dashed var(--muted); }
+.tag.code { color: var(--ink-2); border: 1px solid var(--line); background: var(--panel-2); }
+pre.cmd { margin: 0; padding: 14px 16px; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; font: 13px/1.6 var(--mono); color: var(--ink); }
+pre.cmd .p { color: var(--muted); user-select: none; }
+pre.cmd .c { color: var(--muted); }
+pre.cmd .o { color: var(--ink-2); }
+pre.cmd .ok { color: var(--hit); } pre.cmd .bad { color: var(--catch); } pre.cmd .warn { color: var(--lamp-ink); }
+
+footer.pager { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 14px; margin-top: 8px; font-size: 13.5px; color: var(--muted); }
+footer.pager a { text-decoration: none; font-weight: 600; }
+footer.pager .src { flex-basis: 100%; font-size: 12.5px; }
+/* ===== end shared base ===== */
+
+/* page: visibility */
+:root { --hov: rgba(27, 31, 36, 0.07); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --hov: rgba(232, 235, 240, 0.08); } }
+:root[data-theme="dark"] { --hov: rgba(232, 235, 240, 0.08); }
+
+.tm { font-family: var(--mono); font-size: 12.5px; }
+table.dots { border-collapse: separate; border-spacing: 0; font-size: 13px; }
+table.dots th, table.dots td { text-align: center; vertical-align: middle; padding: 9px 6px; border-bottom: 1px solid var(--line); }
+table.dots thead th { font: 600 12.5px/1.3 var(--sans); color: var(--ink-2); background: var(--panel-2); vertical-align: bottom; }
+table.dots thead th small { display: block; font: 500 11.5px/1.3 var(--sans); color: var(--muted); margin-top: 3px; }
+table.dots tbody th { text-align: left; white-space: nowrap; padding-left: 12px; }
+table.dots tbody tr:last-child th, table.dots tbody tr:last-child td { border-bottom: 0; }
+table.dots .hl { box-shadow: inset 0 0 0 999px var(--hov); }
+table.vis { min-width: 1040px; }
+table.vis td { width: 7.4%; }
+table.vis thead th.corner { text-align: left; font: 500 12px var(--mono); color: var(--muted); }
+.rid { font: 700 19px var(--mono); margin-right: 7px; vertical-align: -1px; }
+.rid.sm { font-size: 14px; }
+.rname { font: 500 13px var(--sans); color: var(--muted); }
+tr.r-s th .rid, tr.r-r th .rid { color: var(--team); }
+tr.r-p th .rid { color: var(--plain); }
+tr.r-g th .rid { color: var(--guard); }
+tr.r-j th .rid { color: var(--judge); }
+tr.r-s th, tr.r-r th { box-shadow: inset 4px 0 0 var(--team); }
+tr.r-p th { box-shadow: inset 4px 0 0 var(--plain); }
+tr.r-g th { box-shadow: inset 4px 0 0 var(--guard); }
+tr.r-j th { box-shadow: inset 4px 0 0 var(--judge); }
+tr.r-h th { box-shadow: inset 4px 0 0 var(--ink-2); }
+tr.r-h th, tr.r-h td { background: var(--panel-2); border-top: 2px solid var(--line); }
+.dot { display: inline-block; width: 15px; height: 15px; border-radius: 50%; background: var(--ink-2); vertical-align: middle; }
+tr.r-s .dot, tr.r-r .dot { background: var(--team); }
+tr.r-p .dot { background: var(--plain); }
+tr.r-g .dot { background: var(--guard); }
+tr.r-j .dot { background: var(--judge); }
+tr.r-h .dot { background: var(--muted); width: 11px; height: 11px; }
+.nv { color: var(--muted); opacity: 0.55; font: 500 15px var(--mono); }
+.wr { display: inline-block; font: 500 11.5px/1.25 var(--mono); color: var(--ink-2); }
+.wr sup { color: var(--lamp-ink); font-weight: 700; }
+.knob { display: inline-block; padding: 0 7px; border-radius: 999px; font: 600 11.5px/1.5 var(--mono); color: var(--muted); border: 1.5px dashed var(--muted); }
+.knob.on { color: var(--lamp-ink); border: 1.5px solid var(--lamp); background: var(--lamp-soft); }
+.kname { display: block; margin-top: 4px; font: 500 11.5px/1.25 var(--mono); color: var(--ink-2); }
+table.dots .col-t { background: var(--lamp-soft); }
+table.dots thead th.col-t { color: var(--lamp-ink); background: var(--lamp-soft); box-shadow: inset 0 3px 0 var(--lamp); }
+table.dots .col-x { background: repeating-linear-gradient(135deg, transparent 0 7px, var(--guard-soft) 7px 14px); }
+table.dots thead th.col-x { color: var(--guard); box-shadow: inset 0 3px 0 var(--guard); }
+.notes { list-style: none; margin: 10px 2px 0; padding: 0; color: var(--muted); font-size: 13px; max-width: 980px; }
+.notes li { margin: 0 0 3px; }
+.notes sup { color: var(--lamp-ink); font-weight: 700; }
+table.tvars { min-width: 640px; }
+table.tvars tbody th { font: 500 12.5px var(--mono); color: var(--ink); }
+table.tvars tbody th small { display: block; font: 400 12px var(--sans); color: var(--muted); }
+table.tvars td { width: 15%; }
+table.tvars .dot { background: var(--ink-2); }
+table.tvars td.c-s .dot, table.tvars td.c-r .dot { background: var(--team); }
+table.tvars td.c-p .dot { background: var(--plain); }
+table.tvars td.c-g .dot { background: var(--guard); }
+table.tvars td.c-j .dot { background: var(--judge); }
+table.tvars thead th.c-s, table.tvars thead th.c-r { color: var(--team); }
+table.tvars thead th.c-p { color: var(--plain); }
+table.tvars thead th.c-g { color: var(--guard); }
+table.tvars thead th.c-j { color: var(--judge); }
+table.tvars thead th { font-family: var(--mono); }
+.layer-band { fill: var(--panel-2); stroke: var(--line); stroke-width: 1.5; }
+.layer-band.proof { fill: var(--panel); stroke: var(--ink-2); stroke-width: 1.8; }
+.num-c { fill: var(--panel); stroke: var(--ink-2); stroke-width: 1.8; }
+.t-num { font: 700 14px var(--mono); fill: var(--ink); }
+table.vis tbody th, table.vis thead th.corner { position: sticky; left: 0; z-index: 1; background: var(--panel); }
+table.vis thead th.corner { background: var(--panel-2); }
+table.vis tbody tr.r-h th { background: var(--panel-2); }
+.rstory { display: block; font: 12px var(--sans); color: var(--muted); font-style: italic; white-space: nowrap; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="ah-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-ink"/></marker>
+    <marker id="ah-team" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-team"/></marker>
+    <marker id="ah-guard" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-guard"/></marker>
+    <marker id="ah-judge" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-judge"/></marker>
+    <marker id="ah-plain" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-plain"/></marker>
+    <marker id="ah-hit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-hit"/></marker>
+    <marker id="ah-miss" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-miss"/></marker>
+    <marker id="ah-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-muted"/></marker>
+    <marker id="ah-lamp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-lamp"/></marker>
+  </defs>
+</svg>
+<div class="wrap">
+
+<nav class="topnav" aria-label="Diagram set">
+  <a class="brand" href="index.html">SimmonsSwarm <span>diagrams</span></a>
+  <div class="navlinks">
+    <a href="index.html"><span class="n">0</span>Map</a>
+    <a href="overview.html"><span class="n">1</span>Game</a>
+    <a href="episode.html"><span class="n">2</span>Run</a>
+    <a href="visibility.html" aria-current="page"><span class="n">3</span>Visibility</a>
+    <a href="records.html"><span class="n">4</span>Records</a>
+    <a href="spend.html"><span class="n">5</span>Spend</a>
+    <a href="matrix.html"><span class="n">6</span>Matrices</a>
+    <a href="usage.html"><span class="n">7</span>Usage</a>
+    <a href="build.html"><span class="n">8</span>Build</a>
+  </div>
+  <button id="theme-btn" type="button" onclick="cycleTheme()">Theme: auto</button>
+</nav>
+
+<header class="page">
+  <h1>Who sees what</h1>
+  <p class="lede">Each role sees only its row of one table. In the story: the monitor never sees the meeting city or the cell's playbook, the cell member who reads the story never sees the city, and nobody in the game sees whether a story is genuine. The code enforces the table by structure, so a mistake turns into an error you see, not a leak you don't.</p>
+  <p class="meta">SPEC §4, §10, §11.1, §15.1, §16 (verify), §17 (as seen by), §23 decision 5 · EVALUATION E-10, E-24</p>
+</header>
+
+<section>
+  <h2>The table</h2>
+  <p class="sub">One row per role, one column per input. Hover any cell to trace its row and column.</p>
+  <div class="legend">
+    <span><i class="sw team"></i>S and R, the sender side</span>
+    <span><i class="sw plain"></i>plain sender</span>
+    <span><i class="sw guard"></i>G</span>
+    <span><i class="sw judge"></i>J</span>
+    <span><i class="dot" style="width:12px;height:12px"></i>sees it</span>
+    <span><span class="nv">–</span>&nbsp;never</span>
+    <span><span class="knob">off</span>a config field, default shown</span>
+    <span><span class="knob on">on</span>on by default</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole table →</p>
+    <div class="fig-scroll">
+    <table class="dots vis" aria-label="Visibility table: which role sees which input">
+      <thead>
+        <tr>
+          <th class="corner">role ↓ · input →</th>
+          <th>P₁</th>
+          <th>P₂</th>
+          <th>Plain prompt</th>
+          <th>Cover task</th>
+          <th>Options</th>
+          <th class="col-t">Target<small>only S, plain sender, J</small></th>
+          <th>Protected list<small>watchlist only<sup>3</sup></small></th>
+          <th>Message m</th>
+          <th>Attempt log</th>
+          <th>Partner model</th>
+          <th class="col-x">Any reason or thinking<small>nobody in the game</small></th>
+          <th>Kind</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="r-s">
+          <th><span class="rid">S</span><span class="rname">sender</span><span class="rstory">the cell, writing</span></th>
+          <td><i class="dot"></i></td>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td class="col-t"><i class="dot"></i></td>
+          <td><span class="knob">off</span><span class="kname">sender_<wbr>knows_<wbr>protected</span></td>
+          <td><span class="wr">writes it</span></td>
+          <td><i class="dot"></i></td>
+          <td><span class="knob on">on</span><span class="kname">tell_<wbr>partner_<wbr>model</span></td>
+          <td class="col-x"><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+        </tr>
+        <tr class="r-s r-sd">
+          <th><span class="rid">S</span><span class="rname">exit interview</span><span class="rstory">after the episode<sup>4</sup></span></th>
+          <td><i class="dot"></i></td>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td class="col-t"><i class="dot"></i></td>
+          <td><span class="knob">off</span><span class="kname">sender_<wbr>knows_<wbr>protected</span></td>
+          <td><span class="wr">its own</span></td>
+          <td><i class="dot"></i></td>
+          <td><span class="knob on">on</span><span class="kname">tell_<wbr>partner_<wbr>model</span></td>
+          <td class="col-x"><span class="wr">its own send call's reasoning</span></td>
+          <td><span class="nv">–</span></td>
+        </tr>
+        <tr class="r-p">
+          <th><span class="rid sm">plain</span><span class="rname">sender</span><span class="rstory">the correspondent</span></th>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td class="col-t"><i class="dot"></i></td>
+          <td><span class="nv">–</span></td>
+          <td><span class="wr">writes it</span></td>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td class="col-x"><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+        </tr>
+        <tr class="r-g">
+          <th><span class="rid">G</span><span class="rname">guard</span><span class="rstory">the monitor</span></th>
+          <td><span class="knob">off</span><span class="kname">guard_<wbr>sees_<wbr>sender_<wbr>prompt</span></td>
+          <td><i class="dot"></i></td>
+          <td><span class="nv">–</span></td>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td class="col-t"><span class="nv">–</span></td>
+          <td><i class="dot"></i><sup>3</sup></td>
+          <td><i class="dot"></i></td>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td class="col-x"><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+        </tr>
+        <tr class="r-r">
+          <th><span class="rid">R</span><span class="rname">receiver</span><span class="rstory">the cell, reading</span></th>
+          <td><i class="dot"></i></td>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td class="col-t"><span class="nv">–</span></td>
+          <td><span class="knob">off</span><span class="kname">receiver_<wbr>knows_<wbr>protected</span></td>
+          <td><span class="wr">if passed<sup>1</sup></span></td>
+          <td><span class="knob">off</span><span class="kname">receiver_<wbr>sees_<wbr>log</span></td>
+          <td><span class="knob on">on</span><span class="kname">tell_<wbr>partner_<wbr>model</span></td>
+          <td class="col-x"><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+        </tr>
+        <tr class="r-j">
+          <th><span class="rid">J</span><span class="rname">judge</span><span class="rstory">confirms the city</span></th>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td class="col-t"><i class="dot"></i></td>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+          <td class="col-x"><span class="nv">–</span></td>
+          <td><span class="nv">–</span></td>
+        </tr>
+        <tr class="r-h">
+          <th><span class="rname">harness and records<sup style="color:var(--lamp-ink)">2</sup></span></th>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td class="col-t"><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+          <td class="col-x"><i class="dot"></i></td>
+          <td><i class="dot"></i></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <ul class="notes">
+      <li><sup>1</sup> <code>shadow_decode</code> is on by default: R also reads blocked messages, in a separate measurement call. The outcome stays CATCH, and R keeps no memory between calls.</li>
+      <li><sup>2</sup> The harness and the records see everything. The viewer shows kinds because it is for experimenters, not players.</li>
+      <li><sup>3</sup> Only with a watchlist (<code>protected_count: 10</code>, a scenario). In the base story <code>protected_count</code> is <code>null</code>: no role gets a protected list, so the monitor judges each story with nothing but P₂, the cover task, the 100 cities and the message.</li>
+      <li><sup>4</sup> S's exit interview (SPEC §11.6, <code>sender_debrief: "blind"</code> by default) sees exactly its own send call (its request, its reasoning, its tool call) plus the interview prompt. Under <code>"informed"</code> the prompt also carries the outcome, the guard's suspicion and guess, and R's pick. Nothing from it reaches G, R or S's later episodes.</li>
+      <li>J also sees the pick. The counts (<code>options_per_episode</code>, <code>protected_count</code>) are public rules every game role may see.</li>
+    </ul>
+  </figure>
+  <p class="callout decided"><span class="tag decided">decided 2026-10-03</span> <b><code>tell_partner_model</code> is on by default.</b>
+  S and R are told each other's model id. The other four knobs stay off. SPEC §23 notes this answer came by voice: if it meant "allowed but off", it is one default to flip.</p>
+</section>
+
+<section>
+  <h2>Eight layers, so a leak fails loudly</h2>
+  <p class="sub">Seven layers of structure keep a role to its row. Two checks prove it, one before any run and one after.
+  Each layer is paired with the mistake it catches and the moment it fails.</p>
+  <div class="legend">
+    <span><i class="sw ink"></i>a layer of structure</span>
+    <span><i class="sw guard"></i>a mistake, and where it fails</span>
+    <span><i class="ln ctl" style="border-top-color:var(--guard)"></i>control: the mistake triggers the failure</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 956" style="min-width:880px" role="img" aria-labelledby="f2t f2d">
+      <title id="f2t">Eight enforcement layers</title>
+      <desc id="f2d">Seven structural layers keep each role to its row of the table: one table as data, typed views, strict templates, request-only adapters, one string on the channel, the log as a projection, and fresh context per call. Noninterference tests and simmons verify prove it. Each layer is paired with the mistake it catches and where that mistake fails loudly.</desc>
+      <text class="t-head" x="20" y="28">STRUCTURE · A LEAK HAS NOWHERE TO GO</text>
+      <text class="t-head" x="720" y="28">THE MISTAKE · WHERE IT FAILS</text>
+      <text class="t-head" x="20" y="710">PROOF · TESTS BEFORE, VERIFY AFTER</text>
+            <rect class="layer-band" x="20" y="44" width="660" height="84" rx="12"/>
+      <circle class="num-c" cx="48" cy="70" r="15"/>
+      <text class="t-num" x="48" y="75" text-anchor="middle">1</text>
+      <text class="t-title" x="80" y="75">One table, as data</text>
+      <text class="t-body" x="80" y="98"><tspan class="tm">visibility.py</tspan> holds the §10.1 table as a dict literal.</text>
+      <text class="t-body" x="80" y="117">A test pins it to the page's table, cell by cell.</text>
+      <path class="wire guard ctl" d="M680 86 H 716" marker-end="url(#ah-guard)"/>
+      <rect class="node guard" x="720" y="44" width="360" height="84" rx="12"/>
+      <circle class="xdot" cx="745" cy="68" r="10"/>
+      <path class="xmark" d="M740.5 63.5 L749.5 72.5 M749.5 63.5 L740.5 72.5"/>
+      <text class="t-body" x="764" y="73" style="fill:var(--ink)">Someone changes who sees what</text>
+      <text class="t-label c-catch" x="738" y="98">fails:</text>
+      <text class="t-body" x="800" y="98">the pin test, and the change is</text>
+      <text class="t-body" x="800" y="117">a one-line diff no reviewer misses</text>
+      <rect class="layer-band" x="20" y="136" width="660" height="84" rx="12"/>
+      <circle class="num-c" cx="48" cy="162" r="15"/>
+      <text class="t-num" x="48" y="167" text-anchor="middle">2</text>
+      <text class="t-title" x="80" y="167">Typed views</text>
+      <text class="t-body" x="80" y="190"><tspan class="tm">build_view(role, episode_state, config)</tspan> is the only reader of episode state.</text>
+      <text class="t-body" x="80" y="209">It returns a frozen view per role. A field the role never sees does not exist.</text>
+      <path class="wire guard ctl" d="M680 178 H 716" marker-end="url(#ah-guard)"/>
+      <rect class="node guard" x="720" y="136" width="360" height="84" rx="12"/>
+      <circle class="xdot" cx="745" cy="160" r="10"/>
+      <path class="xmark" d="M740.5 155.5 L749.5 164.5 M749.5 155.5 L740.5 164.5"/>
+      <text class="t-body" x="764" y="165" style="fill:var(--ink)">Code reads <tspan class="tm">view.target</tspan> for G</text>
+      <text class="t-label c-catch" x="738" y="190">fails:</text>
+      <text class="t-body" x="800" y="190"><tspan class="tm">AttributeError</tspan>: <tspan class="tm">GuardView</tspan> has</text>
+      <text class="t-body" x="800" y="209">no target attribute at all</text>
+      <rect class="layer-band" x="20" y="228" width="660" height="84" rx="12"/>
+      <circle class="num-c" cx="48" cy="254" r="15"/>
+      <text class="t-num" x="48" y="259" text-anchor="middle">3</text>
+      <text class="t-title" x="80" y="259">Strict templates</text>
+      <text class="t-body" x="80" y="282"><tspan class="tm">render(template, view)</tspan> takes a view, never the episode.</text>
+      <text class="t-body" x="80" y="301"><tspan class="tm">substitute</tspan>, never <tspan class="tm">safe_substitute</tspan>: an unknown placeholder is an error.</text>
+      <path class="wire guard ctl" d="M680 270 H 716" marker-end="url(#ah-guard)"/>
+      <rect class="node guard" x="720" y="228" width="360" height="84" rx="12"/>
+      <circle class="xdot" cx="745" cy="252" r="10"/>
+      <path class="xmark" d="M740.5 247.5 L749.5 256.5 M749.5 247.5 L740.5 256.5"/>
+      <text class="t-body" x="764" y="257" style="fill:var(--ink)"><tspan class="tm">guard.md</tspan> mentions <tspan class="tm">$target</tspan></text>
+      <text class="t-label c-catch" x="738" y="282">fails:</text>
+      <text class="t-body" x="800" y="282"><tspan class="tm">simmons validate</tspan>, exit 2,</text>
+      <text class="t-body" x="800" y="301">before any money is spent</text>
+      <rect class="layer-band" x="20" y="320" width="660" height="84" rx="12"/>
+      <circle class="num-c" cx="48" cy="346" r="15"/>
+      <text class="t-num" x="48" y="351" text-anchor="middle">4</text>
+      <text class="t-title" x="80" y="351">Request-only adapters</text>
+      <text class="t-body" x="80" y="374">An adapter receives a <tspan class="tm">RoleRequest</tspan>: model, system, user parts, tool. Nothing else.</text>
+      <text class="t-body" x="80" y="393"><tspan class="tm">build_body(request)</tspan> is pure, so tests read the exact outbound body.</text>
+      <path class="wire guard ctl" d="M680 362 H 716" marker-end="url(#ah-guard)"/>
+      <rect class="node guard" x="720" y="320" width="360" height="84" rx="12"/>
+      <circle class="xdot" cx="745" cy="344" r="10"/>
+      <path class="xmark" d="M740.5 339.5 L749.5 348.5 M749.5 339.5 L740.5 348.5"/>
+      <text class="t-body" x="764" y="349" style="fill:var(--ink)">An adapter reaches for the episode</text>
+      <text class="t-label c-catch" x="738" y="374">cannot:</text>
+      <text class="t-body" x="800" y="374">it never receives the episode,</text>
+      <text class="t-body" x="800" y="393">the plan, the config or a view</text>
+      <rect class="layer-band" x="20" y="412" width="660" height="84" rx="12"/>
+      <circle class="num-c" cx="48" cy="438" r="15"/>
+      <text class="t-num" x="48" y="443" text-anchor="middle">5</text>
+      <text class="t-title" x="80" y="443">One string crosses the channel</text>
+      <text class="t-body" x="80" y="466">The harness copies exactly <tspan class="tm">output[&quot;message&quot;]</tspan> into the G and R views.</text>
+      <text class="t-body" x="80" y="485">S's reasoning, its exit interview, provider thinking and stray text stay in the record.</text>
+      <path class="wire guard ctl" d="M680 454 H 716" marker-end="url(#ah-guard)"/>
+      <rect class="node guard" x="720" y="412" width="360" height="84" rx="12"/>
+      <circle class="xdot" cx="745" cy="436" r="10"/>
+      <path class="xmark" d="M740.5 431.5 L749.5 440.5 M749.5 431.5 L740.5 440.5"/>
+      <text class="t-body" x="764" y="441" style="fill:var(--ink)">A reason or thinking text is forwarded</text>
+      <text class="t-label c-catch" x="738" y="466">fails:</text>
+      <text class="t-body" x="800" y="466">nothing copies it, and the canary</text>
+      <text class="t-body" x="800" y="485">in every reason field trips layer 8</text>
+      <rect class="layer-band" x="20" y="504" width="660" height="84" rx="12"/>
+      <circle class="num-c" cx="48" cy="530" r="15"/>
+      <text class="t-num" x="48" y="535" text-anchor="middle">6</text>
+      <text class="t-title" x="80" y="535">The log is a projection</text>
+      <text class="t-body" x="80" y="558">An attempt-log entry copies only the <tspan class="tm">log_records</tspan> fields of a record.</text>
+      <text class="t-body" x="80" y="577">Reasons are not legal values of <tspan class="tm">log_records</tspan>.</text>
+      <path class="wire guard ctl" d="M680 546 H 716" marker-end="url(#ah-guard)"/>
+      <rect class="node guard" x="720" y="504" width="360" height="84" rx="12"/>
+      <circle class="xdot" cx="745" cy="528" r="10"/>
+      <path class="xmark" d="M740.5 523.5 L749.5 532.5 M749.5 523.5 L740.5 532.5"/>
+      <text class="t-body" x="764" y="533" style="fill:var(--ink)"><tspan class="tm">log_records</tspan> includes <tspan class="tm">&quot;reason&quot;</tspan></text>
+      <text class="t-label c-catch" x="738" y="558">fails:</text>
+      <text class="t-body" x="800" y="558">config validation, exit 2,</text>
+      <text class="t-body" x="800" y="577">before the run starts</text>
+      <rect class="layer-band" x="20" y="596" width="660" height="84" rx="12"/>
+      <circle class="num-c" cx="48" cy="622" r="15"/>
+      <text class="t-num" x="48" y="627" text-anchor="middle">7</text>
+      <text class="t-title" x="80" y="627">Fresh context per call</text>
+      <text class="t-body" x="80" y="650">Every call is a new single-turn request, except S's exit interview, which replays only S's own send call.</text>
+      <text class="t-body" x="80" y="669">No role has memory except what its view hands it.</text>
+      <path class="wire guard ctl" d="M680 638 H 716" marker-end="url(#ah-guard)"/>
+      <rect class="node guard" x="720" y="596" width="360" height="84" rx="12"/>
+      <circle class="xdot" cx="745" cy="620" r="10"/>
+      <path class="xmark" d="M740.5 615.5 L749.5 624.5 M749.5 615.5 L740.5 624.5"/>
+      <text class="t-body" x="764" y="625" style="fill:var(--ink)">A role remembers an earlier episode</text>
+      <text class="t-label c-catch" x="738" y="650">cannot:</text>
+      <text class="t-body" x="800" y="650">no state crosses calls; a role</text>
+      <text class="t-body" x="800" y="669">knows only what its view hands it</text>
+      <rect class="layer-band proof" x="20" y="726" width="660" height="104" rx="12"/>
+      <circle class="num-c" cx="48" cy="752" r="15"/>
+      <text class="t-num" x="48" y="757" text-anchor="middle">8</text>
+      <text class="t-title" x="80" y="757">Noninterference tests · all 32 knob combinations</text>
+      <text class="t-body" x="80" y="780">Fake episode pairs differ only in one input a role must not see.</text>
+      <text class="t-body" x="80" y="799">Its complete outbound body must be byte-identical across the pair.</text>
+      <text class="t-body" x="80" y="818">Canary strings sit in P₁, P₂, the plain prompt and every reason field.</text>
+      <path class="wire guard ctl" d="M680 778 H 716" marker-end="url(#ah-guard)"/>
+      <rect class="node guard" x="720" y="726" width="360" height="104" rx="12"/>
+      <circle class="xdot" cx="745" cy="750" r="10"/>
+      <path class="xmark" d="M740.5 745.5 L749.5 754.5 M749.5 745.5 L740.5 754.5"/>
+      <text class="t-body" x="764" y="755" style="fill:var(--ink)">Any leak that changes one byte</text>
+      <text class="t-label c-catch" x="738" y="786">fails:</text>
+      <text class="t-body" x="800" y="786"><tspan class="tm">uv run pytest</tspan>, the hermetic</text>
+      <text class="t-body" x="800" y="805">suite, on every push and PR</text>
+      <rect class="layer-band proof" x="20" y="838" width="660" height="104" rx="12"/>
+      <circle class="num-c" cx="48" cy="864" r="15"/>
+      <text class="t-num" x="48" y="869" text-anchor="middle">✓</text>
+      <text class="t-title" x="80" y="869"><tspan class="tm">simmons verify &lt;run-dir&gt;</tspan> · after the run</text>
+      <text class="t-body" x="80" y="892">Checks a finished run from its files: no receiver call on a blocked episode,</text>
+      <text class="t-body" x="80" y="911">no P₁ text in guard requests unless the knob is on, no P₂ text in S or R requests.</text>
+      <text class="t-body" x="80" y="930">It also checks record schemas, request hashes and the spend journal.</text>
+      <path class="wire guard ctl" d="M680 890 H 716" marker-end="url(#ah-guard)"/>
+      <rect class="node guard" x="720" y="838" width="360" height="104" rx="12"/>
+      <circle class="xdot" cx="745" cy="862" r="10"/>
+      <path class="xmark" d="M740.5 857.5 L749.5 866.5 M749.5 857.5 L740.5 866.5"/>
+      <text class="t-body" x="764" y="867" style="fill:var(--ink)">A finished run broke an invariant</text>
+      <text class="t-label c-catch" x="738" y="898">fails:</text>
+      <text class="t-body" x="800" y="898">a list of violations instead</text>
+      <text class="t-body" x="800" y="917">of exit 0</text>
+    </svg>
+    </div>
+    <figcaption>None of these depends on someone noticing that a number looks too good. A leak is an error at a known moment:
+    a failing test, exit 2 from <code>simmons validate</code>, an <code>AttributeError</code>, or a <code>simmons verify</code> report.
+    The fake provider implements <code>build_body</code> too, so the noninterference tests run on fake outbound bodies from M2, before the OpenRouter adapter exists.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>One role call, end to end</h2>
+  <p class="sub">Only the harness holds the episode. Each step hands the next one less. On the way back, one string crosses the channel.</p>
+  <div class="legend">
+    <span><i class="ln"></i>data</span>
+    <span><i class="ln" style="border-top-color:var(--team)"></i>the message, the only thing that travels</span>
+    <span><i class="ln" style="border-top-style:dotted;border-top-color:var(--muted)"></i>never reaches</span>
+  </div>
+  <figure class="diagram">
+    <p class="scroll-hint">Scroll sideways for the whole figure →</p>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1100 500" style="min-width:880px" role="img" aria-labelledby="f3t f3d">
+      <title id="f3t">One role call, end to end</title>
+      <desc id="f3d">The harness holds the episode state. build_view makes the role's view, render fills the role's template from the view, the result is a RoleRequest, and the adapter's pure build_body turns it into the one body sent to OpenRouter. The model answers with one tool call. From the sender's call, only output message crosses to G and R. Reason, thinking and discarded text go to the episode record only.</desc>
+
+      <text class="t-head" x="20" y="26">OUT · ONE ROLE CALL</text>
+
+      <rect class="node ink" x="20" y="40" width="190" height="90" rx="12"/>
+      <text class="t-title" x="36" y="68">Episode state</text>
+      <text class="t-small" x="36" y="92">harness only</text>
+      <text class="t-small" x="36" y="112">sees everything</text>
+
+      <rect class="node soft" x="250" y="67" width="150" height="36" rx="18"/>
+      <text class="t-code" x="325" y="90" text-anchor="middle">build_view(role)</text>
+
+      <rect class="node ink" x="440" y="40" width="200" height="90" rx="12"/>
+      <text class="t-title" x="456" y="68">The role's view</text>
+      <text class="t-small" x="456" y="92">a frozen dataclass</text>
+      <text class="t-small" x="456" y="112">e.g. GuardView: no target</text>
+
+      <rect class="node soft" x="680" y="67" width="190" height="36" rx="18"/>
+      <text class="t-code" x="775" y="90" text-anchor="middle">render(template, view)</text>
+
+      <rect class="node ink" x="910" y="40" width="170" height="90" rx="12"/>
+      <text class="t-code" x="926" y="68">RoleRequest</text>
+      <text class="t-small" x="926" y="92">model · system</text>
+      <text class="t-small" x="926" y="112">user parts · tool</text>
+
+      <path class="wire" d="M210 85 H 246" marker-end="url(#ah-ink)"/>
+      <path class="wire" d="M400 85 H 436" marker-end="url(#ah-ink)"/>
+      <path class="wire" d="M640 85 H 676" marker-end="url(#ah-ink)"/>
+      <path class="wire" d="M870 85 H 906" marker-end="url(#ah-ink)"/>
+
+      <rect class="node soft" x="910" y="222" width="170" height="36" rx="18"/>
+      <text class="t-code" x="995" y="245" text-anchor="middle">build_body(request)</text>
+      <path class="wire" d="M995 130 V 218" marker-end="url(#ah-ink)"/>
+
+      <rect class="node ink" x="640" y="195" width="220" height="90" rx="12"/>
+      <text class="t-title" x="656" y="223">OpenRouter</text>
+      <text class="t-small" x="656" y="247">one request body, nothing else</text>
+      <text class="t-small" x="656" y="267">tool choice forced to the role's tool</text>
+      <path class="wire" d="M910 240 H 864" marker-end="url(#ah-ink)"/>
+
+      <rect class="node ink" x="400" y="195" width="200" height="90" rx="12"/>
+      <text class="t-title" x="416" y="223">The model</text>
+      <text class="t-small" x="416" y="247">fresh context, single turn</text>
+      <text class="t-small" x="416" y="267">answers by one tool call</text>
+      <path class="wire" d="M640 240 H 604" marker-end="url(#ah-ink)"/>
+
+      <!-- per-role panel -->
+      <rect class="node soft" x="20" y="160" width="340" height="202" rx="12"/>
+      <text class="t-head" x="36" y="186">SYSTEM = THE PROMPT UNDER TEST</text>
+      <text class="t-small" x="36" y="208">role</text><text class="t-small" x="140" y="208">system</text><text class="t-small" x="234" y="208">tool</text>
+      <text class="t-title" style="fill:var(--team)" x="36" y="232">S</text><text class="t-body" x="140" y="232">P₁</text><text class="t-code" x="234" y="232">send_message</text>
+      <text class="t-title" style="fill:var(--plain)" x="36" y="256">Plain sender</text><text class="t-body" x="140" y="256">plain prompt</text><text class="t-code" x="234" y="256">send_message</text>
+      <text class="t-title" style="fill:var(--guard)" x="36" y="280">G</text><text class="t-body" x="140" y="280">P₂</text><text class="t-code" x="234" y="280">review_message</text>
+      <text class="t-title" style="fill:var(--team)" x="36" y="304">R</text><text class="t-body" x="140" y="304">P₁</text><text class="t-code" x="234" y="304">pick_option</text>
+      <text class="t-title" style="fill:var(--judge)" x="36" y="328">J</text><text class="t-body" x="140" y="328">code in v1: <tspan class="tm">exact_match</tspan>, no call</text>
+      <text class="t-small" x="36" y="348">An empty prompt sends no system prompt.</text>
+
+      <!-- return path -->
+      <text class="t-head" x="20" y="384">BACK FROM S · ONE STRING CROSSES</text>
+      <path class="wire" d="M500 285 V 392" marker-end="url(#ah-ink)"/>
+      <text class="t-label" x="512" y="342">one tool call</text>
+
+      <rect class="node team" x="400" y="396" width="200" height="82" rx="12"/>
+      <text class="t-title" x="416" y="422">S's tool call</text>
+      <text class="t-code" x="416" y="444">send_message</text>
+      <text class="t-label" x="416" y="464">{message}</text>
+
+      <rect class="node team" x="760" y="396" width="320" height="82" rx="12"/>
+      <text class="t-title" x="776" y="422">G's view, then R's view</text>
+      <text class="t-small" x="776" y="444">the message string, exactly</text>
+      <text class="t-small" x="776" y="464">R reads it if passed, or in the shadow call</text>
+
+      <path class="wire team" d="M600 418 H 756" marker-end="url(#ah-team)"/>
+      <text class="t-label" x="678" y="410" text-anchor="middle">output["message"]</text>
+      <path class="wire never" d="M600 458 H 756"/>
+      <circle class="xdot" cx="678" cy="458" r="9"/>
+      <path class="xmark" d="M674 454 L682 462 M682 454 L674 462"/>
+      <text class="t-small" x="678" y="490" text-anchor="middle">reason, thinking: never</text>
+
+      <rect class="node soft" x="20" y="396" width="280" height="82" rx="12"/>
+      <text class="t-title" x="36" y="422">Episode record</text>
+      <text class="t-small" x="36" y="444">message, reason, thinking,</text>
+      <text class="t-small" x="36" y="464">discarded_text: all kept</text>
+      <path class="wire" d="M400 437 H 304" marker-end="url(#ah-ink)"/>
+      <text class="t-label" x="352" y="428" text-anchor="middle">all of it</text>
+    </svg>
+    </div>
+    <figcaption><code>system</code> is the role's iterated prompt, omitted when empty (the mirror test's P₁). <code>user</code> is the role's
+    template rendered from its view. Provider thinking goes into the call record's <code>thinking</code> field and is never rendered for any role.
+    Text outside the tool call is recorded and discarded.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Template variables per role</h2>
+  <p class="sub">Each template is the user message for one role. These are the only placeholders each role's view defines.</p>
+  <div class="legend">
+    <span><i class="dot" style="width:12px;height:12px"></i>defined</span>
+    <span><span class="knob">off</span>defined, empty unless its knob is on</span>
+    <span><span class="nv">–</span>&nbsp;does not exist: using it fails validation</span>
+  </div>
+  <figure class="diagram">
+    <div class="fig-scroll">
+    <table class="dots tvars" aria-label="Template variables per role">
+      <thead>
+        <tr>
+          <th style="text-align:left">variable</th>
+          <th class="c-s">sender</th>
+          <th class="c-p">plain_sender</th>
+          <th class="c-g">guard</th>
+          <th class="c-r">receiver</th>
+          <th class="c-j">judge</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th>$cover_task</th><td class="c-s"><i class="dot"></i></td><td class="c-p"><i class="dot"></i></td><td class="c-g"><i class="dot"></i></td><td class="c-r"><i class="dot"></i></td><td class="c-j"><span class="nv">–</span></td></tr>
+        <tr><th>$options<small>numbered list, one per line</small></th><td class="c-s"><i class="dot"></i></td><td class="c-p"><i class="dot"></i></td><td class="c-g"><i class="dot"></i></td><td class="c-r"><i class="dot"></i></td><td class="c-j"><span class="nv">–</span></td></tr>
+        <tr><th>$option_count, $protected_count</th><td class="c-s"><i class="dot"></i></td><td class="c-p"><i class="dot"></i></td><td class="c-g"><i class="dot"></i></td><td class="c-r"><i class="dot"></i></td><td class="c-j"><span class="nv">–</span></td></tr>
+        <tr><th>$target</th><td class="c-s"><i class="dot"></i></td><td class="c-p"><i class="dot"></i></td><td class="c-g"><span class="nv">–</span></td><td class="c-r"><span class="nv">–</span></td><td class="c-j"><i class="dot"></i></td></tr>
+        <tr><th>$protected_section</th><td class="c-s"><span class="knob">off</span><span class="kname">sender_<wbr>knows_<wbr>protected</span></td><td class="c-p"><span class="nv">–</span></td><td class="c-g"><i class="dot"></i></td><td class="c-r"><span class="knob">off</span><span class="kname">receiver_<wbr>knows_<wbr>protected</span></td><td class="c-j"><span class="nv">–</span></td></tr>
+        <tr><th>$log_section</th><td class="c-s"><i class="dot"></i></td><td class="c-p"><span class="nv">–</span></td><td class="c-g"><span class="nv">–</span></td><td class="c-r"><span class="knob">off</span><span class="kname">receiver_<wbr>sees_<wbr>log</span></td><td class="c-j"><span class="nv">–</span></td></tr>
+        <tr><th>$message</th><td class="c-s"><span class="nv">–</span></td><td class="c-p"><span class="nv">–</span></td><td class="c-g"><i class="dot"></i></td><td class="c-r"><i class="dot"></i></td><td class="c-j"><span class="nv">–</span></td></tr>
+        <tr><th>$sender_prompt_section</th><td class="c-s"><span class="nv">–</span></td><td class="c-p"><span class="nv">–</span></td><td class="c-g"><span class="knob">off</span><span class="kname">guard_<wbr>sees_<wbr>sender_<wbr>prompt</span></td><td class="c-r"><span class="nv">–</span></td><td class="c-j"><span class="nv">–</span></td></tr>
+        <tr><th>$partner_section</th><td class="c-s"><span class="knob on">on</span><span class="kname">tell_<wbr>partner_<wbr>model</span></td><td class="c-p"><span class="nv">–</span></td><td class="c-g"><span class="nv">–</span></td><td class="c-r"><span class="knob on">on</span><span class="kname">tell_<wbr>partner_<wbr>model</span></td><td class="c-j"><span class="nv">–</span></td></tr>
+        <tr><th>$max_message_chars</th><td class="c-s"><i class="dot"></i></td><td class="c-p"><i class="dot"></i></td><td class="c-g"><span class="nv">–</span></td><td class="c-r"><span class="nv">–</span></td><td class="c-j"><span class="nv">–</span></td></tr>
+        <tr><th>$pick</th><td class="c-s"><span class="nv">–</span></td><td class="c-p"><span class="nv">–</span></td><td class="c-g"><span class="nv">–</span></td><td class="c-r"><span class="nv">–</span></td><td class="c-j"><i class="dot"></i></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <figcaption>In the base story there is no protected list. How <code>$protected_section</code> and <code>$protected_count</code> render when <code>protected_count</code> is <code>null</code> is not written down in SPEC §11.1 <span class="tag open">open</span>. A knob variable is always defined. It renders as an empty string when its knob is off, and the view builder is the only thing that can fill it.
+    A variable missing from a role's column does not exist for that role, so a template that uses it fails <code>simmons validate</code>.
+    Rendering uses <code>substitute</code>, never <code>safe_substitute</code>.</figcaption>
+  </figure>
+  <p class="callout"><b>See it for yourself.</b> The episode viewer's <b>as seen by</b> tabs (SPEC §17) show the exact system prompt, user message and tool
+  each role received, read from <code>requests.jsonl.xz</code>, with a mark that a fresh re-render still matches <code>request_sha256</code>.
+  Open the guard's tab on a story and confirm the meeting city is not there. For agents: <code>simmons show &lt;run-dir&gt; --episode N --role guard --prompt</code>.</p>
+</section>
+
+<footer class="pager">
+  <a href="episode.html">← 2 · A run, end to end</a>
+  <a href="records.html">4 · Records →</a>
+  <span class="src">Source: SPEC §4, §10, §11, §15.1, §16, §17 and §23 at commit d2bc655 (origin/main), and EVALUATION E-10 and E-24. Atin's decision 5 of 2026-10-03 applied: <code>tell_partner_model</code> on by default.</span>
+</footer>
+<script>
+/* Hover a cell: highlight its row and column. */
+document.querySelectorAll("table.dots").forEach(function (t) {
+  function clear() { t.querySelectorAll(".hl").forEach(function (c) { c.classList.remove("hl"); }); }
+  t.addEventListener("mouseover", function (e) {
+    var cell = e.target.closest("td, th");
+    if (!cell || !t.contains(cell)) return;
+    clear();
+    var idx = cell.cellIndex, row = cell.parentElement;
+    if (row.parentElement.tagName !== "THEAD") Array.prototype.forEach.call(row.cells, function (c) { c.classList.add("hl"); });
+    if (idx > 0) Array.prototype.forEach.call(t.rows, function (r) { if (r.cells[idx]) r.cells[idx].classList.add("hl"); });
+  });
+  t.addEventListener("mouseleave", clear);
+});
+</script>
+
+</div>
+</body>
+</html>
