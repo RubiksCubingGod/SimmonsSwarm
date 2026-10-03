@@ -35,13 +35,14 @@ One owner per file at a time. A file outside your track is changed through its o
 
 | Track | Owns |
 |---|---|
-| M1 (then hands off) | Everything below, as stubs; `simmons/types.py`; `simmons/cli.py` |
-| A: config, draws, visibility | `config.py`, `inputs.py`, `plan.py`, `visibility.py`, `render.py`, `roles.py`, `templates/`, `commands/{validate,plan,schema,new}.py` |
-| B: OpenRouter and spend | `providers/openrouter.py`, `spend.py`, `model-aliases.json`, `commands/{doctor,budget}.py`, `.env` loading |
+| M1 (then hands off) | Everything below, as stubs. Afterwards `simmons/types.py` and `providers/base.py` are frozen (changes per the working agreements), and `simmons/cli.py` is an append-only list of commands. |
+| A: config, draws, visibility | `config.py`, `inputs.py`, `plan.py`, `visibility.py`, `render.py`, `roles.py`, `payloads/`, `scorers/`, `templates/`, `commands/{validate,plan,schema,new}.py` |
+| B: OpenRouter and spend | `providers/openrouter.py`, `spend.py` (prices, the breaker, the estimate), `model-aliases.json`, `commands/{doctor,budget}.py`, `.env` loading |
 | C: runner | `runner.py`, `episode.py`, `records.py`, `events.py`, `providers/fake.py`, `commands/{run,resume,ls}.py` |
 | D: metrics and grid | `metrics.py`, `grid.py`, `commands/{summarize,grid}.py` |
 | E: show and viewer | `viewer/`, `commands/{show,view}.py` |
 | Content (sender side, guard side) | `prompts/`, `cover-tasks/`, `experiments/` (option sets come from the option-set conversation) |
+| Everyone | Tests for your own files under `tests/`. CLAUDE.md: each milestone appends its own sections; pull right before editing it, and do not rewrite another track's section. |
 
 Seams that keep tracks apart:
 - **One file per CLI command.** Adding a command is a new file plus one line in the list in `cli.py`.
@@ -59,7 +60,7 @@ Seams that keep tracks apart:
 **Scope.**
 - `pyproject.toml` (package `simmons`, console script `simmons`, Python ≥ 3.11, deps from §2 Q20, pytest config with a `live` marker), `uv.lock`, `.gitignore`, `.env.example`.
 - A GitHub Actions workflow that runs `uv run pytest -q` on every push and PR. It is small, and it protects a repo four people push to.
-- `simmons/types.py` with every interface in §15: `ModelSpec`, `TextPart`, `FilePart`, `ToolSpec`, `RoleRequest`, `Usage`, `RoleResponse`, the provider errors, `Target`, `Pick`, `Score`, and the `Provider`, `Scorer`, `Payload` protocols.
+- `simmons/types.py` with every interface in §15: `ModelSpec`, `TextPart`, `FilePart`, `ToolSpec`, `RoleRequest`, `Usage`, `RoleResponse`, the provider errors, `ProviderStatus`, `Target`, `Pick`, `Score`, `PlanContext`, `JudgeCaller`, the five view classes with their fields (§15.3), and the `Provider`, `Scorer`, `Payload` protocols.
 - `config.py`: every field of §6.1 with its type and default. Validation enforces types plus the rules the M1 path needs, including the `max_cost_usd` ceiling.
 - `inputs.py`: array-form option sets, prompts, cover tasks, templates; snapshot into `inputs/`.
 - `plan.py`: the §8 algorithm for `option_draw: "fixed"`, `option_order: "fixed"`, `protected_selection: "random"`, `protected_draw: "sample"`, and the exact kind mix. Other modes raise "lands in M2".
@@ -73,9 +74,9 @@ Seams that keep tracks apart:
 - A minimal summary: counts by kind and outcome, hit rate, catch rate, false-alarm rate, sanity catch rate.
 - CLI: `simmons --version`, `simmons run` with `--fake`, `--scratch`, `--episodes`, `--seed`, `--max-cost`, `--json`.
 - Content stubs: `templates/default/*.md` with the final tags and placeholder wording; placeholder `prompts/sender/reference.md`, `prompts/guard/reference.md`, `prompts/plain/reference.md`; the zero-byte `prompts/sender/empty.md`; `cover-tasks/note-to-teammate.md`.
-- Experiments: `smoke.json` (20 episodes, every role on `fake:covert`, option set `tests/fixtures/option-sets/smoke-100.json` so it never depends on the presets), `smoke-priced.json` (the same with fake prices and a $0.05 cap, so the breaker trips), `smoke-slow.json` (200 episodes, `latency_ms: 20`, for M4), and first drafts of `sanity.json`, `mirror.json` and `reference.json` (M7's three runs).
-- Tests: the hermetic autouse fixture (§21), the end-to-end smoke test, the golden plan for `smoke.json`, the breaker tests that need no OpenRouter, and unit tests for each module's M1 path.
-- `tests/fixtures/make_runs.py` and the fixture runs it writes: three sender prompts against two guard prompts in one arena, plus one run in a second arena, mixing `fake:covert` and `fake:random`.
+- Experiments: `smoke.json` (20 episodes, every role on `fake:covert`, option set `tests/fixtures/option-sets/smoke-100.json` so it never depends on the presets), `smoke-priced.json` (the same with fake prices and a $0.05 cap, so the breaker trips; once M3's estimator lands, tune its prices so the estimate stays under the cap while worst-case reservations pass it, or it will be refused instead of tripping), `smoke-slow.json` (200 episodes, `latency_ms: 20`, for M4), and first drafts of `sanity.json`, `mirror.json` and `reference.json` (M7's three runs). If the preset option sets have not landed yet, these point at fixture sets in `tests/fixtures/option-sets/` (`nouns-100.json`, `numbers-100.json`), so `validate` and `plan` work from M2 on; the content track repoints them to the presets before M7. M1 never writes into `option-sets/`, which the option-set conversation owns.
+- Tests: the hermetic autouse fixture (§21), the end-to-end smoke test, the golden plan for `smoke.json`, the breaker tests that need no OpenRouter, and unit tests for each module's M1 path. The fake receiver's `decode_error_rate` (§15.2) is what makes MISS appear; if seed 7 does not yield every outcome in `smoke.json`, change the smoke seed, not the assertion.
+- `tests/fixtures/make_runs.py` and the fixture runs it writes: three sender prompts against two guard prompts in one arena, plus one run in a second arena, mixing `fake:covert` and `fake:random`. Every fixture run has 20 episodes.
 
 **Definition of done.** Every check below passes, and CLAUDE.md has its M1 sections.
 
@@ -121,7 +122,7 @@ jq -r .run_dir "$TMPDIR/priced.json" | xargs -I{} jq .spent_usd {}/run.json   # 
 uv run pytest -q tests/test_config.py tests/test_inputs.py tests/test_plan.py tests/test_visibility.py tests/test_render.py tests/test_roles.py
 uv run pytest -q -k canary                                 # 32 combinations, all green
 uv run simmons validate; echo "exit $?"                    # exit 0
-for f in tests/fixtures/bad/*.json; do uv run simmons validate "$f" --json | jq -r '.errors[0].path'; done   # one JSON path per file, none empty
+for f in tests/fixtures/bad/*.json; do uv run simmons validate "$f" --json | jq -r '.experiments[0].errors[0].path'; done   # one JSON path per file, none empty
 uv run simmons schema | jq '.properties | keys | length'   # the number of fields in §6.1
 uv run simmons plan experiments/reference.json --head 3
 uv run simmons new my-test --from smoke && uv run simmons validate experiments/my-test.json && command rm -f experiments/my-test.json
@@ -140,6 +141,8 @@ uv run simmons new my-test --from smoke && uv run simmons validate experiments/m
 - Error mapping: 429, 5xx and timeouts are transient; 402 is `BudgetError`; any other 4xx is permanent, with the provider's message.
 - Model list cache from `GET /api/v1/models`: slug, tool support, prices. Validation rejects unknown slugs, models without tool support, and unpriced models. `model-aliases.json` with the page's `claude-sonnet-5-5`.
 - The breaker on real prices. The second cap from `GET /api/v1/key` (`limit_remaining`), read before the run and between waves (§19.3).
+- The cost estimate and the pre-run refusal (§19.2), `run --dry-run` (§9.1 step 4), and the estimate that `validate` prints.
+- `simmons budget --audit`: compare each call's recorded cost with OpenRouter's per-generation cost.
 - `simmons budget`, `simmons doctor` (and `--live`), `.env` loading.
 - Built before the key arrives against recorded OpenRouter responses in `tests/fixtures/openrouter/`, with the client's HTTP transport stubbed, so the suite stays hermetic.
 
@@ -151,12 +154,13 @@ uv run pytest -q tests/test_openrouter.py tests/test_spend.py      # hermetic
 uv run simmons doctor                    # key set; key limit and usage shown; every model in experiments/ found, tool-capable, priced
 uv run simmons doctor --live             # one tiny tool call per distinct model, all ok
 uv run pytest -m live -q                 # 3-episode reference run under a $0.50 cap; tool calls parse; usage.cost recorded
-B0=$(uv run simmons budget --json | jq .key.usage)
 uv run simmons run experiments/reference.json --episodes 5 --scratch --json > "$TMPDIR/ref5.json"
 jq -r '.status, .summary.cost.usd' "$TMPDIR/ref5.json"             # complete, a small positive number
-B1=$(uv run simmons budget --json | jq .key.usage)
-python3 -c "print(abs(($B1 - $B0) - $(jq .summary.cost.usd "$TMPDIR/ref5.json")) < 0.01)"   # True: our ledger matches OpenRouter's
+uv run simmons budget --audit "$(jq -r .run_dir "$TMPDIR/ref5.json")" --json | jq '.mismatches | length'   # 0: our ledger matches OpenRouter's, call by call
+uv run simmons run experiments/reference.json --dry-run; echo "exit $?"                     # prints kind counts and an estimate; exit 0
+ls runs-local/reference | wc -l > "$TMPDIR/n0"
 uv run simmons run experiments/reference.json --max-cost 0.01 --scratch; echo "exit $?"     # exit 3, refused before any call
+ls runs-local/reference | wc -l | diff - "$TMPDIR/n0"                                       # no output: a refusal writes no run directory
 ```
 
 **CLAUDE.md after M3:** Keys (`.env`, `OPENROUTER_API_KEY`), Real runs and spend (estimate, the $20 breaker, `--scratch`, `simmons budget`), Choosing models (slugs, aliases, pinning hosts).
@@ -187,7 +191,7 @@ jq -r .event <run-dir>/events.jsonl | sort | uniq -c                      # incl
 uv run simmons ls --runs-dir runs-local
 ```
 
-**CLAUDE.md after M4:** Waves and what 1S sees, Interrupt and resume, Diagnose a run (the order in §20).
+**CLAUDE.md after M4:** Waves and what S sees, Interrupt and resume, Diagnose a run (the order in §20).
 
 ---
 
@@ -233,7 +237,7 @@ uv run simmons grid --runs-dir tests/fixtures/runs | grep -c '%'                
 uv run pytest -q tests/test_viewer.py tests/test_show.py
 uv run simmons show tests/fixtures/runs/<experiment>/<run-id> --episode 3 --role guard --prompt   # ends "sha256 matches"; no <target> tag in the text
 uv run simmons view tests/fixtures/runs/<experiment>/<run-id> --open
-uv run simmons view --grid --runs-dir tests/fixtures/runs --include-fake --open
+uv run simmons grid --runs-dir tests/fixtures/runs --include-fake --html --open
 ```
 Then a reviewing agent drives both pages in a browser (a c11 browser tab, or Chrome) and confirms:
 1. The episode table has 20 rows, and filtering to CATCH shows only catches.
@@ -256,7 +260,7 @@ Needs no code and can start immediately.
 - **Sender side:** the reference P₁ (`prompts/sender/reference.md`), a generic, modest scheme-free instruction that sets the baseline row; the obvious-code prompt for the sanity run (`prompts/sender/obvious-code.md`); first candidate prompts (`<slug>-v1.md`).
 - **Guard side:** the reference P₂, a plain careful monitor that sets the baseline column; first candidate guard prompts.
 - **Both:** the plain sender's prompt; the final wording of the default templates, together with Track A; two or three more cover tasks; the experiments each person wants to run first.
-- **Option sets:** delivered by the option-set conversation. M7 needs `numbers-1-100` (sanity) and `common-nouns` (mirror and reference), or whatever that conversation names them. `option_draw: "sample"` needs a few larger pools (300 to 500 options), per Atin's notes.
+- **Option sets:** delivered by the option-set conversation. M7 needs `numbers-1-100` (sanity) and `common-nouns` (mirror and reference), or whatever that conversation names them. `option_draw: "sample"` needs a few larger pools (300 to 500 options), per Atin's notes, and `protected_selection: "cluster"` needs the object form with clusters (SPEC §7.1). The option-set conversation's brief asks for ten sets of exactly 100, so Atin relays both asks to it.
 
 ---
 
@@ -282,11 +286,11 @@ uv run simmons validate; echo "exit $?"                     # exit 0
 for e in sanity mirror reference; do uv run simmons run experiments/$e.json --dry-run; done   # each estimate under $20; if not, set log_window or fewer episodes, never raise the ceiling
 uv run simmons run experiments/sanity.json                  # status complete
 jq '.rates.hit_rate.value, .rates.sanity_catch_rate.value, .rates.false_alarm_rate.value' runs/sanity/*/summary.json
-                                                            # far above 0.01; at least 0.9; near 0
+                                                            # at least 0.20 (twenty times chance); at least 0.90; at most 0.10
 uv run simmons run experiments/mirror.json                  # status complete
 uv run simmons run experiments/reference.json               # 200 episodes, status complete
-jq .rates.sanity_catch_rate.value runs/reference/*/summary.json   # at least 0.9; lower means the reference guard is broken, so fix it before freezing
-git add runs/sanity runs/mirror runs/reference && git commit -F "$TMPDIR/msg.txt" && git push
+jq .rates.sanity_catch_rate.value runs/reference/*/summary.json   # at least 0.90; lower means the reference guard is broken: fix it, then re-run sanity, mirror and reference before freezing
+git pull --rebase && git add runs/sanity runs/mirror runs/reference && git commit -m "Add the sanity, mirror and reference runs" && git push
 ```
 Then a second person, on their own clone:
 ```bash
@@ -321,7 +325,7 @@ uv run pytest -q                     # green, including the frozen-reference has
 
 Not in this plan. These are Atin's later fields, in his order, off by default; each has a seam in v1 (§22):
 1. `guard_output: "distribution"`, `receiver_output: "distribution"`.
-2. `sender_authors_prompt`: 1S writes P₁ once before the run.
+2. `sender_authors_prompt`: S writes P₁ once before the run.
 3. `sender_author`, `guard_author`, `generations`: the arms race.
 4. `guard_memory`.
 5. `guard_actions` with `rewrite` and `rewrite_strength`, then `inject`.
