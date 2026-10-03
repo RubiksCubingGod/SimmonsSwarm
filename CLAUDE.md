@@ -84,3 +84,5 @@ Run `uv run pytest -q`. The default suite blocks socket connections and removes 
 - T01 freezes `simmons/types.py`, the config model, `simmons/records.py`, provider/payload/scorer registries, `simmons/cli.py`, and the seam signatures. Add optional fields or helpers freely; a breaking change needs an Orchestrator decision first.
 - `SenderDebriefView` is a sixth view for the post-outcome interview. `SenderView` remains limited to the send call.
 - Every role request carries only its typed view and tool contract. Sender debrief replays its own send turn through `RoleRequest.prior`.
+- Provider adapters copy the send response's assistant message and tool-call id verbatim into `RoleResponse`; `EpisodeState.sender_response` carries it to the debrief. `RoleRequest.attempt` defaults to 1 and is excluded from `request_sha256`.
+- The hermetic suite sets `SIMMONS_DISABLE_DOTENV=1`; `load_env` must return without reading `.env` when set.

@@ -7,6 +7,7 @@ PROTECTED_TAG = "protected"
 ATTEMPT_LOG_TAG = "attempt_log"
 MESSAGE_TAG = "message"
 DEBRIEF_OUTCOME_SECTION_TAG = "debrief_outcome_section"
+PLAIN_TARGET_SECTION_TAG = "plain_target_section"
 SENDER_DEBRIEF_TEMPLATE_NAME = "sender_debrief.md"
 
 TEMPLATE_TAG_NAMES = (
@@ -17,4 +18,5 @@ TEMPLATE_TAG_NAMES = (
     ATTEMPT_LOG_TAG,
     MESSAGE_TAG,
     DEBRIEF_OUTCOME_SECTION_TAG,
+    PLAIN_TARGET_SECTION_TAG,
 )

@@ -62,6 +62,7 @@ class RoleRequest:
     user: tuple[Part, ...]
     tool: ToolSpec
     prior: PriorTurn | None = None
+    attempt: int = 1
 
 
 @dataclass(frozen=True)
@@ -89,6 +90,8 @@ class RoleResponse:
     tool_choice_mode: str
     latency_ms: int
     raw: Mapping[str, Any]
+    assistant_message: Mapping[str, Any] | None = None
+    tool_call_id: str | None = None
 
 
 class TransientError(Exception):
@@ -187,6 +190,7 @@ class ModelInfo:
     context_length: int
     supports_tools: bool
     endpoint_prices: tuple[tuple[str, float, float], ...]
+    supported_parameters: frozenset[str] = frozenset()
 
 
 class Catalog(Protocol):
@@ -245,13 +249,14 @@ class EpisodeState:
     kind: str
     options: tuple[str, ...]
     target: Target
-    protected: frozenset[int]
+    protected: frozenset[int] | None
     message: str | None = None
     attempt_log: tuple[Mapping[str, Any], ...] = ()
     guard_suspicion: float | None = None
     guard_guess: Pick | None = None
     receiver_pick: Pick | None = None
     outcome: str | None = None
+    sender_response: RoleResponse | None = None
 
 
 @dataclass(frozen=True)
@@ -275,7 +280,7 @@ class SenderView:
     cover_task: str
     options: tuple[str, ...]
     option_count: int
-    protected_count: int
+    protected_count: int | None
     target: Target
     protected_section: str
     log_section: str
@@ -293,7 +298,8 @@ class PlainSenderView:
     cover_task: str
     options: tuple[str, ...]
     option_count: int
-    protected_count: int
+    protected_count: int | None
+    plain_target_section: str
     target: Target
     max_message_chars: int
     rendered_sections: Mapping[str, str] = field(default_factory=dict)
@@ -308,7 +314,7 @@ class GuardView:
     cover_task: str
     options: tuple[str, ...]
     option_count: int
-    protected_count: int
+    protected_count: int | None
     protected_section: str
     message: str
     sender_prompt_section: str
@@ -324,7 +330,7 @@ class ReceiverView:
     cover_task: str
     options: tuple[str, ...]
     option_count: int
-    protected_count: int
+    protected_count: int | None
     protected_section: str
     log_section: str
     partner_section: str
@@ -352,7 +358,7 @@ class SenderDebriefView:
     cover_task: str
     options: tuple[str, ...]
     option_count: int
-    protected_count: int
+    protected_count: int | None
     target: Target
     protected_section: str
     log_section: str

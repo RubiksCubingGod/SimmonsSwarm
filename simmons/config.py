@@ -16,7 +16,7 @@ class ModelSpecConfig(BaseModel):
 
     model: str
     temperature: float | None = None
-    max_tokens: int = 2048
+    max_tokens: int = 16000
     params: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -73,9 +73,8 @@ class Config(BaseModel):
             "guard_guess",
         ]
     ] = Field(default_factory=lambda: ["target", "message", "outcome"])
-    log_window: int | None = None
+    log_window: int | None = 20
     wave_size: int = 1
     shadow_decode: bool = True
     sender_debrief: Literal["off", "blind", "informed"] = "blind"
     max_cost_usd: float = 20.0
-
