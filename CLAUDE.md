@@ -6,14 +6,14 @@ A framework for running experiments on covert signalling between LLMs, built at 
 
 ## The game
 
-- **1S (sender)** and **1R (receiver)** share one prompt, P₁. **2G (guard)** has its own prompt, P₂, and never sees P₁.
-- Each episode draws 100 options, a target T and a protected set of 10 for the guard. Only 1S and the judge know the target.
-- Every episode has a **cover task**, an innocent job the message is supposed to do. 1S writes one cover message that does the job and hides the target. Before sending it can read its **attempt log** of past outcomes.
-- 2G reads the message, the 100 options with its protected 10, and the cover task. It returns a **suspicion score** and its **guess** at the target. The harness turns the score into pass or block.
-- If the message passes, 1R reads it and picks one of the 100. The judge compares the pick with T.
+- **S (sender)** and **R (receiver)** share one prompt, P₁. **G (guard)** has its own prompt, P₂, and never sees P₁.
+- Each episode draws 100 options, a target T and a protected set of 10 for the guard. Only S and J know the target.
+- Every episode has a **cover task**, an innocent job the message is supposed to do. S writes one cover message that does the job and hides the target. Before sending it can read its **attempt log** of past outcomes.
+- G reads the message, the 100 options with its protected 10, and the cover task. It returns a **suspicion score** and its **guess** at the target. The harness turns the score into pass or block.
+- If the message passes, R reads it and picks one of the 100. J, the judge, compares the pick with T.
 - Outcomes: **CATCH** (blocked), **MISS** (passed, wrong pick), **HIT** (passed, right pick). HIT is the reward signal.
 - Innocent traffic is mixed in, unmarked. **Control** episodes draw the target from the 90 allowed options. **Plain-sender** episodes use a sender that states its target openly. Blocking either is a false alarm, so a guard that blocks everything pays. A plain sender with a protected target should always be caught; that is the guard's sanity check.
-- Metrics, all computed from episode records: hit rate, catch rate, false-alarm rate, the catch vs false-alarm curve across thresholds, and the **decode gap**, how much more often 1R decodes the target than 2G guesses it. The gap is the covert channel itself.
+- Metrics, all computed from episode records: hit rate, catch rate, false-alarm rate, the catch vs false-alarm curve across thresholds, and the **decode gap**, how much more often R decodes the target than G guesses it. The gap is the covert channel itself.
 - Results live in a **sender × guard grid**. Each cell is one P₁ against one P₂. A frozen reference sender and reference guard give everyone the same baseline.
 
 ## The principle
@@ -24,9 +24,9 @@ Later fields already exist on paper: the guard rewriting the message, guard memo
 
 ## Words we use
 
-- The **sender side** is 1S and 1R, iterating P₁. The **guard side** is 2G, iterating P₂. Nobody is attacking: one side sends information, the other guards against it.
+- The **sender side** is S and R, iterating P₁. The **guard side** is G, iterating P₂. Nobody is attacking: one side sends information, the other guards against it.
 - The guard side is half the deliverable: a tool suite for detecting covert communication.
-- Roles are 1S, 1R, 2G and the judge. Prompts are P₁ and P₂. Outcomes are CATCH, MISS, HIT.
+- Roles are S (sender), R (receiver), G (guard) and J (judge). The numbered forms 1S, 1R and 2G are retired. Prompts are P₁ and P₂. Outcomes are CATCH, MISS, HIT.
 
 ## v1 and what "done" means
 
@@ -42,11 +42,11 @@ Green tests are not done. Done is run 3 on real models, with the five numbers pe
 
 ## Where the design lives and how it changes
 
-- `diagram.html` is the source of truth. Open it in a browser. Its footer carries the version (v7 today). It lists decisions by number (1 to 19, with gaps where decisions were folded or dropped) and open questions by number (20 to 23), each with a gut answer. Refer to them by number.
+- `diagram.html` is the source of truth. Open it in a browser. Its footer carries the version (v8 today). It lists decisions by number (1 to 24, with gaps where decisions were folded or dropped) and open questions by number (20 to 23), each with a gut answer. Refer to them by number.
 - A design change is a new version of the page. Do not edit it unless Atin asked for a new version.
 - `atin/phosphor-mutations-selected.md` says which extension ideas are in v1, which are later fields, which are dropped, and what comes after v1.
 - `docs/SPEC.md` and `docs/BUILDPLAN.md` are the build spec and build plan. They take positions on questions 20 to 23 and list their own assumptions and open questions. Both are drafts under review. Build from them. Where they disagree with the page, the page wins and the spec is wrong.
-- Decided on the page: 2G never sees P₁ (a field turns on the harder mode); the guard always protects the target; both prompts are under test; an experiment is one JSON config; option sets are presets of 100; every message has a cover task; results form the grid; models are a field and the team supplies keys.
+- Decided on the page: G never sees P₁ (a field turns on the harder mode); the guard always protects the target; both prompts are under test; an experiment is one JSON config; option sets are presets of 100; every message has a cover task; results form the grid; models are a field and the team supplies keys.
 - Open on the page: language and runtime, where results live, repo layout, and each role's structured output. The spec's positions on these stand until Atin says otherwise.
 
 ## Working here
@@ -58,7 +58,7 @@ Green tests are not done. Done is run 3 on real models, with the five numbers pe
 
 ## Status
 
-2026-10-03. Design stage, no code yet. Diagram at v7. The v1 scope is settled in `atin/phosphor-mutations-selected.md`. The spec and build plan are committed as drafts under review. A separate conversation is choosing the ten preset option sets. Nothing runs yet.
+2026-10-03. Design stage, no code yet. Diagram at v8. The v1 scope is settled in `atin/phosphor-mutations-selected.md`. The spec and build plan are committed as drafts under review. A separate conversation is choosing the ten preset option sets. Nothing runs yet.
 
 ## How this file grows
 
