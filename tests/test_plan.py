@@ -7,9 +7,10 @@ from collections import Counter
 
 import pytest
 
+import simmons.plan as plan_module
 from simmons.config import Config, ModelSpecConfig
 from simmons.plan import build_plan
-from simmons.records import PlanRecord, canonical_json, validate_record
+from simmons.records import PlanRecord, append_jsonl, canonical_json, validate_record
 from simmons.types import OptionSet
 
 
@@ -35,6 +36,35 @@ def test_same_seed_has_identical_jsonl_and_hash_and_different_seed_changes_them(
     assert hashlib.sha256(first).digest() == hashlib.sha256(repeated).digest()
     assert first != changed
     assert hashlib.sha256(first).digest() != hashlib.sha256(changed).digest()
+
+
+def test_plan_hash_matches_append_jsonl_bytes_and_ignores_non_draw_config(tmp_path):
+    assert hasattr(plan_module, "plan_hash"), "missing plan_hash helper"
+    config = Config(name="plan-hash", episodes=8)
+    options = _option_set()
+    lines = build_plan(config, options)
+    path = tmp_path / "plan.jsonl"
+    for line in lines:
+        append_jsonl(path, line)
+
+    expected = hashlib.sha256(path.read_bytes()).hexdigest()
+    actual = plan_module.plan_hash(lines)
+    changed_prompts_models = config.model_copy(
+        update={
+            "sender_prompt": "prompts/sender/another.md",
+            "guard_prompt": "prompts/guard/another.md",
+            "plain_sender_prompt": "prompts/plain/another.md",
+            "models": {
+                "default": ModelSpecConfig(model="fake:random", max_tokens=512)
+            },
+            "log_window": 1,
+        }
+    )
+    changed_seed = config.model_copy(update={"seed": config.seed + 1})
+
+    assert actual == expected
+    assert plan_module.plan_hash(build_plan(changed_prompts_models, options)) == actual
+    assert plan_module.plan_hash(build_plan(changed_seed, options)) != actual
 
 
 def test_plan_ignores_prompts_models_and_log_window():

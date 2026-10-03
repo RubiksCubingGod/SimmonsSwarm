@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Iterable
 from decimal import Decimal, ROUND_HALF_UP
 from random import Random
 
 from .config import Config
-from .records import PlanRecord
+from .records import PlanRecord, canonical_json
 from .types import OptionSet
 
 _PLAN_SCHEMA = "simmons.plan/1"
+
+
+def plan_hash(lines: Iterable[PlanRecord]) -> str:
+    """Return the SHA-256 of the canonical JSONL bytes for plan records."""
+    digest = hashlib.sha256()
+    for line in lines:
+        digest.update(canonical_json(line).encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def _round_half_up_product(count: int, rate: float) -> int:
