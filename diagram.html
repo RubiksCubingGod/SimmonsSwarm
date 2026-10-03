@@ -237,6 +237,9 @@
   pre.config .s { color: var(--team); }
   pre.config .c { color: var(--muted); font-style: italic; }
   table.knobs td.f { font: 500 12.5px var(--mono); color: var(--muted); }
+  ul.ideas { margin: 4px 0 10px; padding-left: 20px; color: var(--ink-2); font-size: 15px; }
+  ul.ideas li { margin: 0 0 6px; }
+  ul.ideas b { color: var(--ink); }
   ol.qs > li.done { background: transparent; }
   ol.qs > li.done::before { color: var(--hit); border-color: var(--hit); }
   .knob {
@@ -278,7 +281,7 @@
     <h1>EnigmaChallenge</h1>
     <p class="lede">An eval of covert signalling between LLMs. A sender has to get one choice out of a hundred
     to a receiver through a guard who is watching for ten of them.</p>
-    <p class="meta">Hackathon project · private GitHub repo · built for many people running many experiments</p>
+    <p class="meta">AI Village Hackathon · github.com/RubiksCubingGod/Enigma-Challenge · built for many people running many experiments</p>
   </div>
   <div class="lamps" aria-hidden="true">
     <div class="lamp">E</div><div class="lamp">N</div><div class="lamp lit">I</div>
@@ -637,7 +640,8 @@
     </li>
     <li class="done" data-n="8">
       <strong>Who runs experiments? A hackathon team.</strong>
-      <p>Several people running experiments side by side, sharing a private GitHub repo.</p>
+      <p>Several people running experiments side by side, sharing the private repo
+      <span class="mono">RubiksCubingGod/Enigma-Challenge</span>.</p>
     </li>
     <li class="done" data-n="9">
       <strong>What is an experiment? One JSON config.</strong>
@@ -652,6 +656,11 @@
       <strong>Results as a standing grid? Yes.</strong>
       <p>Every result is a sender × guard matchup. The two sides are called the sender side and the guard side:
       nobody is attacking, one side is sending information and the other is guarding against it.</p>
+    </li>
+    <li class="done" data-n="18">
+      <strong>What is the hackathon? The AI Village Hackathon.</strong>
+      <p>The repo's brief: show that agent swarms can communicate steganographically, and build a tool suite for
+      detecting steganographic communication. The guard side is half the deliverable, not just an opponent.</p>
     </li>
   </ol>
 </section>
@@ -708,10 +717,35 @@
       <p>This decides the default model, the cost of a 200-episode run, and the rate limits we will hit.</p>
       <p class="gut"><b>Gut:</b> one cheap, fast model in all roles while iterating; a stronger model for the headline runs.</p>
     </li>
+    <li data-n="19">
+      <strong>Which of these ideas go into v1?</strong>
+      <p>This setup is a known problem with a name: Simmons' prisoners' problem (1983), two prisoners passing notes
+      past a warden. Four extensions are cheap and change what we can measure:</p>
+      <ul class="ideas">
+        <li><b>Mirror test.</b> Run with P₁ empty, so 1S and 1R share nothing but the model. Any hit rate above 1 in 100
+        measures how well a model coordinates with a copy of itself, and it is the baseline every P₁ is judged against.</li>
+        <li><b>The guard names its suspect.</b> 2G also guesses the target. A covert channel is one 1R can read and the
+        guard can't, so score how much more often 1R decodes the target than 2G does. A merely confusing message then scores zero.</li>
+        <li><b>A suspicion score, not a verdict.</b> 2G outputs a number from 0 to 1, and the harness applies the threshold.
+        One run then gives the guard's full catch versus false-alarm curve instead of a single point.</li>
+        <li><b>The honest sender.</b> Mix in messages that carry no signal at all, so we can measure false alarms on
+        plain traffic as well as on allowed targets.</li>
+      </ul>
+      <p>For later:</p>
+      <ul class="ideas">
+        <li>a guard that rewrites messages;</li>
+        <li>agents running both loops as an automated arms race;</li>
+        <li>a guard with memory across episodes;</li>
+        <li>a target leaked slowly across many episodes;</li>
+        <li>two-way key agreement through the guard;</li>
+        <li>a weak guard watching a strong pair, the AI-control framing.</li>
+      </ul>
+      <p class="gut"><b>Gut:</b> all four in v1.</p>
+    </li>
   </ol>
 </section>
 
-<footer>EnigmaChallenge · episode diagram v4 · 2026-10-03</footer>
+<footer>EnigmaChallenge · episode diagram v5 · 2026-10-03</footer>
 
 </div>
 </body>
