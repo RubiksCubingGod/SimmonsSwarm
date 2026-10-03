@@ -21,12 +21,12 @@ We are building the framework, not one experiment. Any choice about a single exp
 
 ## Status
 
-Design stage, no code yet. The build spec and build plan are being written to `docs/SPEC.md` and `docs/BUILDPLAN.md`.
+Design stage, no code yet. The build spec is `docs/SPEC.md` and the build plan is `docs/BUILDPLAN.md`, both drafts under review. Build from them; where they disagree with `diagram.html`, the diagram wins.
 
 ## Working here
 
 - Several people work in this repo at once. Pull before you edit, and push design changes promptly, because teammates read them.
-- Each person has their own folder for notes at the repo root, named after them (`atin/`). Write-ups, selections and working notes go there; shared folders hold only what every experiment uses.
+- Each person has their own folder for notes at the repo root, named after them: `aarav/`, `atin/`, `miguel/`, `patrick/`. Write-ups, selections and working notes go there; shared folders hold only what every experiment uses.
 - The two sides are the **sender side** (1S and 1R) and the **guard side** (2G). Nobody is attacking: one side sends information, the other guards against it.
 - The guard side is half the deliverable: a tool suite for detecting covert communication.
 - As the build lands, this file grows to cover how to run an experiment, run the tests, and read results.
