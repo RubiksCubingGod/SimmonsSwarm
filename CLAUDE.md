@@ -65,8 +65,24 @@ Green tests are not done. Done is run 3 on real models, with the five numbers pe
 
 ## Status
 
-2026-10-03. Design stage, no code yet. Diagram at v10, leading with the base story. The v1 scope is settled in `atin/phosphor-mutations-selected.md`. The spec and build plan are committed as drafts under review. A separate conversation is choosing the ten preset option sets. Nothing runs yet.
+2026-10-03. T01 contract in progress; M1 modules start after it merges. Diagram at v10, leading with the base story. The v1 scope is settled in `atin/phosphor-mutations-selected.md`. The spec and build plan are committed as drafts under review. A separate conversation is choosing the ten preset option sets.
 
 ## How this file grows
 
 As the build lands, this file gains sections for setup, running the tests, running and writing an experiment, keys and spend, reading results and looking at an episode, plus a pitfalls list that gets an entry the day something bites. Each milestone updates the Status line. Keep it short enough to read in two minutes and point at the spec for depth.
+
+## Setup
+
+Use Python 3.11 or newer, then run `uv sync`. Copy `.env.example` to `.env` only when a real provider key is needed; `.env` is ignored by git.
+
+## Run the tests
+
+Run `uv run pytest -q`. The default suite blocks socket connections and removes provider keys; tests marked `live` are excluded unless explicitly selected.
+
+## Interfaces
+
+- T01 freezes `simmons/types.py`, the config model, `simmons/records.py`, provider/payload/scorer registries, `simmons/cli.py`, and the seam signatures. Add optional fields or helpers freely; a breaking change needs an Orchestrator decision first.
+- `SenderDebriefView` is a sixth view for the post-outcome interview. `SenderView` remains limited to the send call.
+- Every role request carries only its typed view and tool contract. Sender debrief replays its own send turn through `RoleRequest.prior`.
+- Provider adapters copy the send response's assistant message and tool-call id verbatim into `RoleResponse`; `EpisodeState.sender_response` carries it to the debrief. `RoleRequest.attempt` defaults to 1 and is excluded from `request_sha256`.
+- The hermetic suite sets `SIMMONS_DISABLE_DOTENV=1`; `load_env` must return without reading `.env` when set.

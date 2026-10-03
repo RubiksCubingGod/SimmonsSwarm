@@ -1,0 +1,13 @@
+.env
+.simmons/
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+runs-local/
+results/
+**/requests.jsonl
+**/run.lock
+**/calls.jsonl
+**/events.jsonl
+**/view/
