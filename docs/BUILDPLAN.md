@@ -1,6 +1,6 @@
 # SimmonsSwarm build plan
 
-Status: draft for review, 2026-10-03. Builds what `docs/SPEC.md` specifies. Section numbers below (§) refer to SPEC.md.
+Status: ready for orchestration, not launched, 2026-10-03. Builds what `docs/SPEC.md` specifies; `docs/EVALUATION.md` says what done means and how each criterion is verified. These three files are the build contract. Section numbers below (§) refer to SPEC.md.
 
 ## Shape
 
@@ -15,10 +15,10 @@ M1 Walking skeleton (serial: freezes the interfaces, the breaker is in from the 
  ├── M6 Show and viewer                  Track E
  └── Content: prompts, cover tasks, experiments (starts on day one, needs no code)
           all of the above ──► M7 First real results: the done gate
- M2 + M4 + M5 ──► M8 Matrices            Track F (runs beside M7; does not gate it unless Atin says so, SPEC open question 6)
+ M2 + M3 + M4 + M5 ──► M8 Matrices       Track F (runs beside M7; does not gate v1)
 ```
 
-M1 is built by one person or one agent, because it fixes the interfaces everyone else codes against. While it is in progress, the content track writes prompts and cover tasks, and Track D can hand-write the metrics fixture from §12.4 and §13. After M1, tracks A to E run in parallel. M7 needs all of them. M8 starts once M2's hashes, M4's resume and M5's dataset exist. It builds on fake runs, and its real-model gate is the first replicate of the monitoring gap.
+M1 is built by one person or one agent, because it fixes the interfaces everyone else codes against. While it is in progress, the content track writes prompts and cover tasks, and Track D can hand-write the metrics fixture from §12.4 and §13. After M1, tracks A to E run in parallel. M7 needs all of them. M8 starts once M2's hashes, M3's estimator, M4's resume and trajectories, and M5's dataset exist. It builds on fake runs, and its real-model gate is the first replicate of the monitoring gap.
 
 No time estimates. Each milestone ends when its verification passes.
 
@@ -39,9 +39,9 @@ One owner per file at a time. A file outside your track is changed through its o
 | M1 (then hands off) | Everything below, as stubs. Afterwards `simmons/types.py` and `providers/base.py` are frozen (changes per the working agreements), and `simmons/cli.py` is an append-only list of commands. |
 | A: config, draws, visibility | `config.py`, `inputs.py`, `plan.py`, `visibility.py`, `render.py`, `roles.py`, `payloads/`, `scorers/`, `templates/`, `commands/{validate,plan,schema,new}.py` |
 | B: OpenRouter and spend | `providers/openrouter.py`, `spend.py` (prices, the breaker, the estimate), `model-aliases.json`, `commands/{doctor,budget}.py`, `.env` loading |
-| C: runner | `runner.py`, `episode.py`, `records.py`, `events.py`, `providers/fake.py`, `commands/{run,resume,ls}.py` |
+| C: runner | `runner.py`, `episode.py`, `records.py`, `events.py`, `providers/fake.py`, `commands/{run,resume,ls,verify}.py` |
 | D: metrics, dataset and grid | `metrics.py`, `dataset.py`, `pivot.py`, `grid.py`, `commands/{summarize,grid,dataset,pivot}.py` |
-| E: show and viewer | `viewer/`, `commands/{show,view,verify}.py` |
+| E: show and viewer | `viewer/`, `commands/{show,view}.py` |
 | F: matrices | `matrix.py`, `coverage.py`, `commands/{matrix,compare}.py`, `matrices/`, `tests/fixtures/matrices/` |
 | Content (sender side, guard side) | `prompts/`, `cover-tasks/`, `experiments/` (option sets come from the option-set conversation) |
 | Everyone | Tests for your own files under `tests/`. CLAUDE.md: each milestone appends its own sections; pull right before editing it, and do not rewrite another track's section. |
@@ -76,7 +76,8 @@ Seams that keep tracks apart:
 - `payloads/option.py`, `scorers/exact_match.py`.
 - `episode.py`, `runner.py` (waves run one at a time with one worker; every attempt goes through the breaker; the run lock; atomic metadata writes; `requests.jsonl` captured and compressed to `requests.jsonl.xz` at the end), `records.py` (with `matrix: null` in `run.json` and `summary.json`, so matrices never need a record migration), minimal `events.py`.
 - A minimal summary: counts by kind and outcome, hit rate, catch rate, false-alarm rate, sanity catch rate.
-- CLI: `simmons --version`, `simmons run` with `--fake`, `--scratch`, `--episodes`, `--seed`, `--max-cost`, `--json`.
+- CLI: `simmons --version`, `simmons run` with `--fake`, `--scratch`, `--episodes`, `--seed`, `--max-cost`, `--json`, and a minimal `simmons verify` (records schema-valid, one record per index, every request hash present in `requests.jsonl.xz`, spend journal balanced) that M3 and M4 use and M4 completes.
+- The attempt log under `log_scope: "run"` semantics. Experiment-scope trajectories (inheritance across runs) land in M4; until then every run behaves as a slot's first run. Smoke runs are unaffected, since local runs never feed committed trajectories.
 - Content stubs: `templates/default/*.md` with the final tags and placeholder wording; placeholder `prompts/sender/reference.md`, `prompts/guard/reference.md`, `prompts/plain/reference.md`; the zero-byte `prompts/sender/empty.md`; `cover-tasks/note-to-teammate.md`.
 - Experiments: `smoke.json` (20 episodes, every role on `fake:covert`, option set `tests/fixtures/option-sets/smoke-100.json` so it never depends on the presets), `smoke-priced.json` (the same with fake prices and a $0.05 cap, so the breaker trips; once M3's estimator lands, tune its prices so the estimate stays under the cap while worst-case reservations pass it, or it will be refused instead of tripping), `smoke-slow.json` (200 episodes, `latency_ms: 20`, for M4), and first drafts of `sanity.json`, `mirror.json` and `reference.json` (M7's three runs). If the preset option sets have not landed yet, these point at fixture sets in `tests/fixtures/option-sets/` (`nouns-100.json`, `numbers-100.json`), so `validate` and `plan` work from M2 on; the content track repoints them to the presets before M7. M1 never writes into `option-sets/`, which the option-set conversation owns.
 - Tests: the hermetic autouse fixture (§21), the end-to-end smoke test, the golden plan for `smoke.json`, the breaker tests that need no OpenRouter, and unit tests for each module's M1 path. The fake receiver's `decode_error_rate` (§15.2) is what makes MISS appear; if seed 7 does not yield every outcome in `smoke.json`, change the smoke seed, not the assertion.
@@ -183,7 +184,9 @@ ls runs-local/reference | wc -l | diff - "$TMPDIR/n0"                           
 - Waves with frozen log snapshots (§9.2), the thread pool (`--concurrency`, default 10), the single-wave fast path when no log is in play.
 - Ctrl-C handling and `--stop-after N`. `resume` as §9.7 specifies: the lock, torn final lines, the log rebuilt from episodes, spend recomputed from the journal, and the `--retry-errors` policy. Crash injection between every pair of writes (`SIMMONS_CRASH_AT`).
 - The full event set of §12.7, `calls.jsonl`, the per-wave progress line, every status value.
-- `shadow_decode`, if Atin says yes to SPEC open question 1.
+- `shadow_decode` (on by default): the separate receiver call on a blocked message, recorded under `shadow_pick`, never changing the outcome.
+- Trajectories (`log_scope: "experiment"`, §8, §9.1 step 3, §9.7): inheriting the slot's log and start index, the local and committed roots, fork detection in `ls`.
+- `simmons verify` completed to every invariant in §16.
 - `simmons ls`, with stale-run detection.
 
 **Definition of done.** Every check below passes.
@@ -197,7 +200,9 @@ uv run simmons resume <run-dir> --json | jq -r .status                    # comp
 jq -s 'map(.index) | unique | length' <run-dir>/episodes.jsonl            # 200
 jq -r .event <run-dir>/events.jsonl | sort | uniq -c                      # includes run_start, run_resume and run_end; no error events
 uv run simmons verify <run-dir>; echo "exit $?"                           # exit 0
-uv run pytest -q -k "crash_at or run_lock or retry_errors_policy"        # every injected crash recovers; a second process is refused
+uv run pytest -q -k "crash_at or run_lock or retry_errors_policy or trajectory"   # every injected crash recovers; a second process is refused; a second run continues the log
+uv run simmons run experiments/smoke.json --json | jq -r .run_dir > "$TMPDIR/r1"; uv run simmons run experiments/smoke.json --json | jq -r .run_dir > "$TMPDIR/r2"
+jq '.trajectory.start' "$(cat "$TMPDIR/r2")/run.json"                     # 20: the second local run continued the first's trajectory
 uv run simmons ls --runs-dir runs-local
 ```
 
@@ -247,7 +252,6 @@ uv run simmons pivot --rows sender --cols guard --runs-dir tests/fixtures/runs -
 - `simmons show`: run overview, one episode, one role's request from `requests.jsonl.xz` with the `request_sha256` check, and `--sample N` for the cover-task check.
 - `simmons view`: `view/index.html` and one page per episode (§17), including the "as seen by" tabs; the grid page; `grid --html` generating any run page it links to.
 - HTML-safe JSON embedding and text-only DOM insertion, with the hostile-string test.
-- `simmons verify` (§16): a finished run's invariants, checked from its files.
 
 **Definition of done.** The commands pass, and a reviewing agent has driven the pages in a real browser.
 
@@ -280,7 +284,7 @@ Needs no code and can start immediately.
 - **Sender side:** the reference P₁ (`prompts/sender/reference.md`), a generic, modest scheme-free instruction that sets the baseline row; the obvious-code prompt for the sanity run (`prompts/sender/obvious-code.md`); first candidate prompts (`<slug>-v1.md`).
 - **Guard side:** the reference P₂, a plain careful monitor that sets the baseline column; first candidate guard prompts.
 - **Both:** the plain sender's prompt; the final wording of the default templates, together with Track A; two or three more cover tasks; the experiments each person wants to run first.
-- **Option sets:** delivered by the option-set conversation. M7 needs `numbers-1-100` (sanity) and `common-nouns` (mirror and reference), or whatever that conversation names them. `option_draw: "sample"` needs a few larger pools (300 to 500 options), per Atin's notes, and `protected_selection: "cluster"` needs the object form with clusters (SPEC §7.1). The option-set conversation's brief asks for ten sets of exactly 100, so Atin relays both asks to it.
+- **Option sets:** delivered by the option-set conversation. M7 needs `numbers-1-100` (sanity) and `common-nouns` (mirror and reference), or whatever that conversation names them. v1 uses the presets as plain lists (Atin): `cluster` selection waits for a set with clusters, and `sample` draws work on any preset with `options_per_episode` below its size.
 
 ---
 
@@ -306,6 +310,7 @@ Needs no code and can start immediately.
 ```bash
 uv run simmons validate; echo "exit $?"                     # exit 0
 for e in sanity mirror reference; do uv run simmons run experiments/$e.json --dry-run; done   # each estimate under $20; if not, set log_window or fewer episodes, never raise the ceiling
+# the three runs are independent experiments: with wave_size 1 each is sequential, so run them side by side in three terminals
 uv run simmons run experiments/sanity.json                  # status complete
 for r in runs/sanity/*/ ; do uv run simmons verify "$r" || echo "WIRING FAILURE: $r"; done
 jq '.rates.hit_rate, .rates.sanity_catch_rate, .rates.false_alarm_rate | {value, num, den}' runs/sanity/*/summary.json
@@ -333,15 +338,15 @@ uv run pytest -q                     # green, including the frozen-reference has
 
 ## M8. Matrices (Track F)
 
-**Goal.** A matrix file expands into ordinary experiments. Four people and their agents fill it from their own machines without tracking it by hand, and anyone gets back one dataset and any pivot of it. Runs beside M7 and does not gate v1 unless Atin says so (SPEC open question 6). SPEC §6.5, §14.6 to §14.8, §19.5.
+**Goal.** A matrix file expands into ordinary experiments. Four people and their agents fill it from their own machines without tracking it by hand, and anyone gets back one dataset and any pivot of it. Runs beside M7 and does not gate v1 (Atin). SPEC §6.5, §14.4 to §14.8, §19.5.
 
 **Scope.**
 - `matrix.py`: load and validate matrix files, both axis forms, labels, patches, `exclude`, `first`, cell keys, `resolve_cell`. `simmons validate` accepts matrices (one branch in Track A's command) and runs the repo checks for `matrices/`.
 - `simmons run <matrix.json> --cell KEY --seed N` (one branch in Track C's command). The run directory is `runs/<matrix>/<run-id>/`, with `matrix` filled in `run.json` and `inputs/matrix.json` snapshotted.
 - `coverage.py` and `simmons matrix status`: slot states, duplicates, orphans, spend, estimate, next slots, `--json` as in §14.7.
 - `simmons matrix cells`, with `--as-experiment`.
-- `simmons matrix run`: resume first, breadth and depth orders, `first`, author-keyed order, `--shard`, `--cell`, `--seeds`, `--max-runs`, `--max-cost`, `--dry-run`, `--keep-going`, the `budget_usd` gate and the lowered run cap, JSON lines on stdout. `--sync` only if Atin says yes to SPEC open question 7.
-- `simmons dataset --level episode` and `simmons pivot --level episode --bin` (for the learning curve).
+- `simmons matrix run`: resume first, breadth and depth orders, `first`, author-keyed order, `--shard`, `--cell`, `--seeds`, `--max-runs`, `--max-cost`, `--dry-run`, `--keep-going`, the `budget_usd` gate and the lowered run cap, JSON lines on stdout, `--sync` (approved, opt-in), and `MATRIX_CEILING_USD = 100` in `spend.py`.
+- Matrix-aware dataset and pivot in Track D's files, by PR their owner reviews: `--matrix` (with the §14.7 scan rule), `axis.*` and `label.cell` derived from the matrix file by `id.config`, unfilled cells as `·`, `--level episode` and `--bin` (for the learning curve across trajectories).
 - `simmons compare`.
 - Fixtures: `tests/fixtures/matrices/smoke-matrix.json` (base `experiments/smoke.json`; axis `sender` over two fixture P₁ files labelled `ref` and `alt`; axis `guard` over `models.guard` with `fake:covert` and `fake:random`; seeds `[1, 2]`: 4 cells, 8 slots) and `smoke-matrix-priced.json` (the same with fake prices and `budget_usd: 0.05`).
 - `matrices/monitoring-gap.json` as in SPEC §6.5.
@@ -359,17 +364,18 @@ uv run simmons validate "$TMPDIR/smoke-matrix.json"; echo "exit $?"             
 for k in 1 2; do uv run simmons matrix run "$M" --shard $k/2 --dry-run --json | jq -r '.next[] | "\(.key)/\(.seed)"'; done | sort | uniq -d   # no output: shards are disjoint
 for k in 1 2; do uv run simmons matrix run "$M" --shard $k/2 --dry-run --json | jq -r '.next[] | "\(.key)/\(.seed)"'; done | wc -l            # 8: and they cover every slot
 uv run simmons run "$M" --cell alt__covert --seed 2 --stop-after 7 --json | jq -r .status                      # interrupted
-uv run simmons matrix run "$M" --max-runs 3 --json | head -1 | jq -r '.key, .resume'                          # alt__covert, true: resume first
+uv run simmons matrix run "$M" --max-runs 3 --json > "$TMPDIR/m3.jsonl"; head -1 "$TMPDIR/m3.jsonl" | jq -r '.key, .resume'   # alt__covert, true: resume first
 uv run simmons matrix status "$M" --json | jq -c '.slots'                        # filled 3, missing 5
 uv run simmons matrix run "$M" --json | tail -1 | jq -r '.status, .filled'       # complete, 8
 uv run simmons run "$M" --cell ref__covert --seed 1 --json | jq -r .status       # complete: the same slot again, by hand
-uv run simmons matrix status "$M" --json | jq '.slots.duplicate'                 # 1
+uv run simmons matrix status "$M" --json | jq '.slots.extended'                  # 1: the hand run continued the slot's trajectory
 uv run simmons matrix run "$M" --json | grep -c slot_start                       # 0: nothing missing, no run starts
 uv run simmons matrix run tests/fixtures/matrices/smoke-matrix-priced.json --json | tail -1 | jq -r '.status, .spend.usd'   # stopped_budget, at most 0.05
-uv run simmons dataset --matrix smoke-matrix --json | jq '.rows'                 # 9: eight slots and one duplicate
+uv run simmons dataset --matrix smoke-matrix --json | jq '.rows'                 # 9: eight slots and one extension run
 uv run simmons dataset --matrix smoke-matrix --level episode --json | jq '.rows' # 180
 uv run simmons pivot --matrix smoke-matrix --rows axis.sender --cols axis.guard --metric hit_rate --md   # 2 × 2; every cell shows an interval, n and r; header "also varies: none"
-uv run simmons compare smoke-matrix:ref__covert smoke-matrix:ref__random --json | jq -c '[.differs[].field, .paired]'   # only the guard model differs; paired true
+uv run simmons compare smoke-matrix:alt__covert smoke-matrix:alt__random --json | jq -c '[.differs[].field, .paired]'   # only the guard model differs; paired true
+uv run simmons validate tests/fixtures/bad/matrix-budget-150.json; echo "exit $?"   # exit 2: budget_usd above MATRIX_CEILING_USD
 ```
 
 **Real-model gate.** The first replicate of the monitoring gap, filled by two people at once:
@@ -385,6 +391,58 @@ uv run simmons pivot --matrix monitoring-gap --rows axis.pair --cols axis.guard 
 **Cold-agent check:** a fresh agent gets one instruction: "Read CLAUDE.md. Fill the smoke matrix, then give me the hit rate by sender and guard with intervals, and tell me whether the comparison is apples to apples." It succeeds without help.
 
 **CLAUDE.md after M8:** Run a matrix (declare, price, fill, status, shard), Read a matrix (dataset, pivot, compare, what "also varies" means), and the coordination rule: pull before `matrix run`, push finished runs promptly.
+
+---
+
+## Ticket map (for the orchestrator)
+
+The milestones above, cut into tickets an owner can finish and a reviewer can check. "Verify" points at the milestone's verification block and the EVALUATION.md criteria the ticket proves. Every ticket also keeps `uv run pytest -q` green and under 10 seconds.
+
+| Ticket | Track | Work | Depends on | Files | Proves |
+|---|---|---|---|---|---|
+| T01 | M1 | Package, `types.py` (every §15 interface), CLI dispatcher, CI workflow, `.gitignore`, `.env.example`, hermetic test fixture | none | `pyproject.toml`, `simmons/types.py`, `simmons/cli.py`, `providers/base.py`, `.github/`, `tests/conftest.py` | E-01, E-02, E-38 |
+| T02 | M1 | The walking skeleton: config (all fields, M1 rules), inputs and snapshot, plan, visibility and views, render, roles, fake provider, breaker and journal, episode, runner (one worker), records, minimal summary, `run` and minimal `verify`, smoke experiments, fixture runs | T01 | M1 scope | E-03 to E-06, E-20 |
+| T03 | A | Every validation rule and its bad fixture; hashes and ids; `validate` with repo checks; `schema`; `new`; `params` allowlist; `purpose` and the eval-seed check | T02 | `config.py`, `commands/{validate,schema,new}.py` | E-07, E-08 |
+| T04 | A | Draw modes and option-set forms: object form, clusters, `sample`, `shuffled`, `protected_draw: "fixed"`; `plan` command | T02 | `inputs.py`, `plan.py`, `commands/plan.py` | E-09 |
+| T05 | A | Visibility proof and tools: noninterference and canary tests over 32 knob combinations; tool variants; the plain contract; context-fit check on a recorded catalog; template wording draft | T02 | `visibility.py`, `render.py`, `roles.py`, `templates/`, `payloads/`, `scorers/` | E-10, E-11 |
+| T06 | B | OpenRouter adapter: `build_body`, forced tools, `require_parameters`, `max_price`, `transforms: []`, error mapping, retries off, recorded-response tests | T02 | `providers/openrouter.py` | E-12, E-38 |
+| T07 | B | Real catalog: models and endpoints, cache and refresh, aliases, validation hooks | T02 | `spend.py` (catalog part), `model-aliases.json` | E-13 |
+| T08 | B | Breaker on real prices, the estimate, refusal, `--dry-run`, preflight, the key-limit cap | T06, T07 | `spend.py`, run-start hooks via Track C review | E-14, E-15 |
+| T09 | B | `budget`, `budget --audit`, `doctor`, `doctor --live`, `.env` loading | T06 | `commands/{budget,doctor}.py` | E-16 |
+| T10 | C | Waves, thread pool, events, `calls.jsonl`, progress line, statuses, `ls` | T02 | `runner.py`, `events.py`, `commands/ls.py` | E-17 |
+| T11 | C | Resume, the run lock, torn lines, crash injection, `--retry-errors` policy, `requests.jsonl.xz` compression | T10 | `runner.py`, `records.py`, `commands/resume.py` | E-18 |
+| T12 | C | Trajectories (`log_scope: "experiment"`), forks, shadow decode, `verify` completed | T11 | `runner.py`, `episode.py`, `commands/verify.py` | E-19, E-20 |
+| T13 | D | Metrics: per-stage eligibility, intervals, curve, AUC, shadow fields, `summarize`, the 30-record and 10/90 fixtures | T02 | `metrics.py`, `commands/summarize.py` | E-21 |
+| T14 | D | Dataset at run level | T13 | `dataset.py`, `commands/dataset.py` | E-22 |
+| T15 | D | Pivot, frames, pairing; `grid` as a pivot; stale-summary recompute; dedupe | T14 | `pivot.py`, `grid.py`, `commands/{pivot,grid}.py` | E-23 |
+| T16 | E | `show` (with `--prompt` and `--sample`) | T02 | `commands/show.py` | E-24 |
+| T17 | E | Viewer: run and episode pages, grid page, hostile-string safety | T16, T15 (grid page) | `viewer/`, `commands/view.py` | E-25, E-26 |
+| T18 | F | Matrix files: load, validate, expand, `resolve_cell`; `matrix cells`; the `validate` and `run` branches | T03, T12 | `matrix.py`, `commands/matrix.py` | E-30 |
+| T19 | F | Coverage and `matrix status` | T18, T14 | `coverage.py` | E-31 |
+| T20 | F | `matrix run`: order, shards, resume first, budget, `MATRIX_CEILING_USD`, `--sync` | T19, T08 | `commands/matrix.py`, `spend.py` (constant) | E-32, E-33 |
+| T21 | F | Matrix-aware dataset and pivot, episode level, `compare` | T18, T15 | `dataset.py`, `pivot.py` (by PR), `commands/compare.py` | E-34 |
+| T22 | Content | Reference P₁ and P₂, the obvious-code prompt, the plain prompt, final template wording, cover tasks | none (template wording after T05) | `prompts/`, `templates/`, `cover-tasks/` | E-27 |
+| T23 | M7 | The three real runs, `verify` on each, the cover-task review, freezing the reference prompts | T03 to T17, T22, H1 to H3 | `runs/`, `tests/` (freeze test) | E-28, E-29, E-36 |
+| T24 | M8 | The monitoring gap's first replicate, by two people | T20, T21, H1 | `matrices/monitoring-gap.json`, `runs/` | E-35 |
+
+The only shared files are serialized by the owners named in the Tracks table: `spend.py` (B; T20 adds one constant by PR), `runner.py` (C; T08's run-start hooks by PR), `dataset.py` and `pivot.py` (D; T21 by PR), and `cli.py` (append one line per command).
+
+## Human track
+
+Work only a person can do, with when it is needed. The orchestrator cannot finish T23 or T24 without it.
+
+| Item | Who | Needed by |
+|---|---|---|
+| H1. `OPENROUTER_API_KEY` in each builder's `.env`, with a credit limit set on the key | Atin | T06 to T09 live checks, T23, T24 |
+| H2. The `numbers-1-100` and `common-nouns` option sets in `option-sets/` | the option-set conversation | T23 |
+| H3. Reference prompts and the obvious-code prompt written by the sender and guard sides (T22) | the team | T23 |
+| H4. Reading 20 reference messages for the cover task and writing `review.md` | a teammate | T23 |
+| H5. Accepting any behavior expectation that misses, from its written diagnosis | Atin | T23 |
+| H6. Driving the viewer once by hand (the felt check) | a teammate | T17, T23 |
+
+## Orchestration readiness
+
+Ready, not launched. The contract is `docs/SPEC.md`, `docs/EVALUATION.md` and this file. The launch brief is `.agents/orchestrator-brief-01.md` on Atin's machine. Before launch, Atin answers that brief's questions: merge authority for the Merge Captain, a local or hosted Lattice board, and who takes the human track.
 
 ---
 
@@ -420,9 +478,9 @@ Not in this plan. These are Atin's later fields, in his order, off by default; e
 6. `receiver_replies`, `messages_per_episode > 1`.
 7. `target_scope: "run"`: low and slow.
 
-Also later: open payloads (`text`, `file`) with `similarity` and `llm_judge` scorers; a catch-corpus export; template cache markers; cover-task sets drawn per episode; `log_from_run` if SPEC open question 3 goes that way; direct provider adapters only if OpenRouter cannot pass something through. The first experiment after M7 is the monitoring gap, which needs only `models`, and is M8's real-model gate.
+Also later: open payloads (`text`, `file`) with `similarity` and `llm_judge` scorers; a catch-corpus export; template cache markers; cover-task sets drawn per episode; direct provider adapters only if OpenRouter cannot pass something through. The first experiment after M7 is the monitoring gap, which needs only `models`, and is M8's real-model gate.
 
-For matrices: claim files pushed before a slot starts (only if duplicate spend turns out to matter); several slots in parallel inside one `matrix run` (run several `--shard` processes until then); paired episode-level deltas in `compare` (McNemar, or a paired bootstrap over plan indices); `pivot --html` on the grid page's template; `--sync` if it is not approved for M8.
+For matrices: claim files pushed before a slot starts (only if duplicate spend turns out to matter); several slots in parallel inside one `matrix run` (run several `--shard` processes until then); paired episode-level deltas in `compare` (McNemar, or a paired bootstrap over plan indices); `pivot --html` on the grid page's template.
 
 ## How CLAUDE.md grows
 

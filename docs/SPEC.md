@@ -1,6 +1,6 @@
 # SimmonsSwarm build spec
 
-Status: draft for review, 2026-10-03. Source of truth for the design is `diagram.html` (footer v7), with Atin's dispositions in `atin/phosphor-mutations-selected.md`. This file turns that design into something the team can build. Precedence: Atin's dispositions, then the page, then this file. Where this file deliberately departs from the page, section 2 or 3 says so for Atin to confirm; any other disagreement means this file is wrong.
+Status: ready for orchestration, not launched, 2026-10-03. The build contract is this file, `docs/EVALUATION.md` (what done means and how each criterion is proven) and `docs/BUILDPLAN.md` (order, tracks, tickets). Source of truth for the design is `diagram.html` (footer v7), with Atin's dispositions in `atin/phosphor-mutations-selected.md`. This file turns that design into something the team can build. Precedence: Atin's dispositions, then the page, then this file. Where this file deliberately departs from the page, section 2 or 3 says so for Atin to confirm; any other disagreement means this file is wrong.
 
 The principle, restated because every section follows from it: **we are building the framework, not one experiment.** Any choice about a single experiment is a field in that experiment's JSON config, with a default. The framework owns what every experiment shares: the episode lifecycle, the visibility rules, the records and the metrics.
 
@@ -19,11 +19,12 @@ The principle, restated because every section follows from it: **we are building
 | **P₂** | The guard prompt. |
 | **Episode** | One draw, one message, one outcome. |
 | **Kind** | Which population an episode belongs to: `covert`, `control`, `plain_allowed`, `plain_protected` (section 8). No role ever sees the kind. |
-| **Outcome** | `CATCH`, `HIT`, `MISS`, or `ERROR` (a role failed to answer; excluded from rates, always counted). |
+| **Outcome** | `CATCH`, `HIT`, `MISS`, or `ERROR` (a role failed to answer). Stages that finished before a failure still count (section 13); every `ERROR` is counted in `counts.errors`. |
 | **Experiment** | One JSON file in `experiments/`. |
 | **Run** | One execution of an experiment. Writes one directory under `runs/`. |
-| **Wave** | A batch of episodes that run in parallel. S's attempt log updates between waves. |
-| **Arena** | Every config field except the sender side, the guard side, and run size. The frame of the sender × guard grid, which is one pivot among many (section 14.5). |
+| **Wave** | A batch of episodes that run in parallel. S's attempt log updates between waves. The default wave is one episode. |
+| **Trajectory** | The continuous attempt log of one slot (an experiment's config and seed), across all its runs. |
+| **Arena** | Every config field except the sender side, the guard side, and run size (run size joins the arena only for fresh-log runs with history, section 6.3). The frame of the sender × guard grid, which is one pivot among many (section 14.5). |
 | **Matchup** | One (sender side, guard side) pair inside an arena. One grid cell. |
 | **Matrix** | One JSON file in `matrices/`: a base experiment, axes and seeds. It names many ordinary experiments (section 6.5). |
 | **Axis** | One dimension of a matrix. Each value is a patch of config fields, with a label. |
@@ -39,7 +40,7 @@ The principle, restated because every section follows from it: **we are building
 
 **Q20. Language and runtime. Adopt the gut, with one change.** Python 3.11 or later, managed with `uv` (`pip install -e .` also works). One command runs an experiment, and a thin adapter wraps each model provider. The change: the command is `simmons`, not `enigma`. The project was renamed, and `enigma` would read as a leftover. So: `simmons run experiments/<name>.json`. Runtime libraries are `pydantic` (config schema), `jsonschema` (tool output validation) and `openai` (the client for OpenRouter's OpenAI-compatible API). Tests use `pytest`. Nothing else.
 
-**Q21. Where results live. Adopt the gut, with a split.** Each run writes `runs/<experiment>/<run-id>/` with `episodes.jsonl` and `summary.json`, and the run directory is committed. Pulling the repo pulls everyone's results, and the grid rebuilds from the files. The split: the small, durable files are committed (config, input snapshots, plan, episodes, attempt log, run metadata, summary). The bulky or regenerable files are gitignored (raw provider calls, the event log, the generated viewer). Runs that use the fake provider, or that pass `--scratch`, go to `runs-local/`, which is gitignored, so test runs never pollute the grid. Run ids include the author, so two people never write the same directory and runs never conflict in git. The grid is generated on demand and never committed, because a committed generated file conflicts on every pull.
+**Q21. Where results live. Adopt the gut, with a split.** Each run writes `runs/<experiment>/<run-id>/` with `episodes.jsonl` and `summary.json`, and the run directory is committed. Pulling the repo pulls everyone's results, and the grid rebuilds from the files. The split: the durable files are committed (config, input snapshots, plan, episodes, attempt log, the spend journal, the compressed requests, run metadata, summary). The bulky or regenerable files are gitignored (raw provider calls, the event log, the generated viewer). Runs that use the fake provider, or that pass `--scratch`, go to `runs-local/`, which is gitignored, so test runs never pollute the grid. Run ids include the author, so two people never write the same directory and runs never conflict in git. The grid is generated on demand and never committed, because a committed generated file conflicts on every pull.
 
 **Q22. Repo layout. Adopt the gut and add five directories.** `experiments/`, `prompts/sender/`, `prompts/guard/`, `option-sets/`, `cover-tasks/`, `runs/` as proposed. Added: `simmons/` (the package), `templates/` (the framework's per-role prompt scaffolds), `prompts/plain/` (the plain sender's prompt), `tests/`, `runs-local/` (gitignored). An experiment references the rest by path. Section 5 has the full tree and the rules that keep people from colliding.
 
@@ -54,22 +55,22 @@ Decisions made here without asking. Each is cheap to reverse unless it says othe
 1. **A field joins the schema when the code that reads it lands.** Page fields that v1 does not implement (`payload: "text" | "file"`, `messages_per_episode > 1`) are in the schema now and accept only their v1 value, with an error that says "not implemented in v1".
 2. **Four episode kinds.** Plain-sender episodes split between allowed and protected targets. A block on `control` or `plain_allowed` is a false alarm. A block on `plain_protected` is correct, and a pass there is a failed sanity check. This is how the page's two statements ("a block on either one is a false alarm" and "a plain sender with a protected target should always be caught") fit together.
 3. **Kind counts are exact, not sampled.** 200 episodes at the default rates is always 140 covert, 40 control, 10 plain_allowed, 10 plain_protected. The seed shuffles their order.
-4. **The attempt log is per run.** Each run starts with an empty log. Plain-sender episodes and `ERROR` episodes never enter it. The page says one log per experiment; this departs from it. (Open question 3.)
-5. **Waves.** S reads the log as it stood at the start of its wave. `wave_size: 1` is strictly sequential. The default is 10. (Open question 2.)
+4. **One attempt log per experiment** (the page's rule, confirmed by Atin 2026-10-03). Precisely, one continuous log per slot: an experiment's resolved config (`config_hash`) and seed. Running the experiment again continues the log where its last run stopped, and episode indices continue too. A different seed starts a separate trajectory, which is what a replicate is. Plain-sender and `ERROR` episodes never enter the log. `log_scope: "run"` gives each run a fresh log instead.
+5. **S sees its log after every episode** (`wave_size: 1`, the default, Atin 2026-10-03). Batching is configurable: with `wave_size` above 1, S reads the log as it stood at the start of its wave. A run with history is therefore sequential by default; throughput comes from running many experiments and matrix slots side by side.
 6. **The prompt under test is the system prompt.** P₁ is the system prompt for S and R, P₂ for G. The per-episode facts (cover task, options, target, log, message) arrive in one user message rendered from a framework template. An empty P₁ means no system prompt at all: the mirror test.
 7. **The game's rules are public; the secrets are not.** Every role knows a guard exists and that it protects `protected_count` of `options_per_episode` options. Only the list itself is gated by the visibility knobs.
-8. **S and R are not told their partner's model by default** (`tell_partner_model: false`), matching "everything optional off" in the basic experiment. (Open question 5.)
+8. **S and R are told their partner's model by default** (`tell_partner_model: true`, Atin 2026-10-03).
 9. **Every role call is a fresh, single-turn request.** No conversation state crosses calls, roles or episodes. Provider features that keep server-side state are off.
 10. **Block means `suspicion >= block_threshold`.**
-11. **The decode gap is measured on passed covert episodes**, where both R and G read the same messages. (Open question 1 offers an unbiased version.)
+11. **R also reads blocked messages, for measurement** (`shadow_decode: true` by default, Atin 2026-10-03). R has no memory between calls, so a separate measurement call cannot affect the game. The summary reports the decode gap on passed covert episodes and on all covert episodes.
 12. **All real model traffic goes through OpenRouter in v1** (Atin, 2026-10-03). One key, one adapter, one consistent tool-calling format, and exact per-call cost in every response. Direct provider adapters are later work, added only if OpenRouter cannot pass something through. The default model for every role is Claude Sonnet 5.5 on OpenRouter, `openrouter:anthropic/claude-sonnet-5.5` (the page's example model). The exact slug is checked against OpenRouter's model list in milestone 3.
 13. **The reference prompts are placeholders until milestone 7**, then frozen by a hash test.
-14. **Option-set files come in two forms.** The plain JSON array of strings that the option-set conversation is writing, or an object form that adds a description and clusters. Clusters only exist in the object form. (Open question 4.)
+14. **Option-set files come in two forms.** The plain JSON array of strings that the option-set conversation is writing, or an object form that adds a description and clusters. v1's presets are plain arrays (Atin 2026-10-03), so `protected_selection: "cluster"` waits for a set with clusters and errors clearly until one exists. `option_draw: "sample"` works on any preset once `options_per_episode` is set below its size.
 15. **Threads, not asyncio.** Adapters are plain synchronous functions. A thread pool gives concurrency. It is easier for teammates to write an adapter this way, and the work is I/O bound.
 16. **`protected_draw` is in v1, default `sample`** (redrawn every episode, as the page's "One episode" describes). Atin's notes list it both as an addition now and as an after-v1 field. It is one line in the draw step, so v1 takes it.
 17. **The plain sender is background traffic, not part of the sender side.** Its model falls back to `models.default`, not to `models.sender`, so a sweep that varies the sender's model keeps the innocent traffic constant and stays in one arena.
 18. **Every role's full request is committed literally.** Each call attempt's canonical request is appended to `requests.jsonl` and compressed to `requests.jsonl.xz` when the run ends (section 12.1). This keeps Atin's rule that the record stores every role's full input, and the viewer shows what was sent without re-rendering it through code that may since have changed. The attempt log repeats inside every sender request, and xz compresses that repetition well; `simmons ls` reports each run's actual size.
-19. **Development and evaluation runs never pool.** The `purpose` field (`dev` by default) is part of the arena. An `eval` run must use a seed that no `dev` run in its arena has used, so prompts tuned by looking at seed 7 are judged on targets their authors never saw.
+19. **Development and evaluation runs never pool.** The `purpose` field (`dev` by default) is part of the arena. An `eval` run must use a seed that no `dev` run of the same arena (compared as if `purpose` were `dev`) has used, so prompts tuned by looking at seed 7 are judged on targets their authors never saw.
 20. **Execution semantics are versioned.** `PROTOCOL_VERSION`, a constant in code, is part of the arena. It is bumped whenever rendering, validation, outcome or metric semantics change, so runs from different harness behavior never pool silently.
 21. **Metrics count each stage on its own.** A failure late in an episode never erases what an earlier stage observed (section 13).
 22. **A matrix is many ordinary experiments, not a new kind of experiment.** Its cells are resolved in memory and never written to `experiments/`. Each cell runs through the same `run` path as any experiment.
@@ -77,7 +78,9 @@ Decisions made here without asking. Each is cheap to reverse unless it says othe
 24. **Coverage is computed from run directories every time.** Nothing about coverage, claims or progress is stored in the repo, so there is nothing to conflict on.
 25. **Duplicate runs of a slot are kept and pooled.** They are valid samples of model behavior on the same draws. Coverage counts the slot once and reports the duplicate and its spend.
 26. **A matrix budget is hard within one process and soft across people.** Each person's `matrix run` enforces it from the spend it can see. The OpenRouter key limit is the hard outer cap.
-27. **Run length is identity only when history is in play.** With no attempt log in play, runs of different lengths share a cell and pool, and a slot is filled by a complete run with at least the cell's `episodes`. With history in play, `episodes` is part of the cell, so a 40-episode try never pools with a 200-episode run of the same config: they are different treatments.
+27. **Run length is identity only for fresh-log runs with history.** Under the default `log_scope: "experiment"`, a slot's runs are segments of one trajectory, so their lengths do not define the cell, and a slot is filled once its trajectory holds the cell's `episodes`. Under `log_scope: "run"` with history in play, `episodes` is part of the cell, so a 40-episode run never pools with a 200-episode run: they are different treatments.
+29. **Matrices do not gate v1** (Atin 2026-10-03). v1's done gate is the three-run ladder; matrices are milestone 8.
+30. **Two spend ceilings live in code:** `RUN_CEILING_USD = 20` per run and `MATRIX_CEILING_USD = 100` per matrix (Atin 2026-10-03). Raising either is a reviewed code change.
 28. **A pivot refuses a bucket that mixes cells differing in a field it was not asked to compare** (exit 2, with `--allow-mixed` to override), so no number silently pools two option sets.
 
 ---
@@ -86,11 +89,11 @@ Decisions made here without asking. Each is cheap to reverse unless it says othe
 
 From the page, restated as invariants the code enforces and the tests check:
 
-1. A catch ends the episode. R never sees a blocked message (unless `shadow_decode` is turned on, open question 1, and then only in a separate measurement call that cannot change the outcome).
+1. A catch ends the episode: R's answer never decides a blocked message. With `shadow_decode` (on by default), R reads blocked messages in a separate measurement call that cannot change the outcome, and R keeps no memory between calls.
 2. Only S, the plain sender and J know the current target.
 3. Each role sees only what its row in the visibility table allows (section 10). No role's reasoning ever travels on the channel.
 4. Every episode writes a full record. Every number on the grid is computed from records, never kept by hand.
-5. The attempt log belongs to one run of one experiment. Changing P₁ changes the experiment's config hash, which makes it a new experiment.
+5. The attempt log belongs to one experiment and seed, and carries across its runs. Changing P₁, or any field, changes the experiment's `config_hash`, which starts a fresh log.
 
 ---
 
@@ -188,7 +191,7 @@ Source: **P** = on the page, **A** = added here because the framework needs a de
 | **Episode mix** | | | | |
 | `episodes` | int | `200` | 1 ≤ n ≤ 100000 | P |
 | `seed` | int | `7` | ≥ 0 | P |
-| `purpose` | `"dev"` \| `"eval"` | `"dev"` | `eval` requires a seed that no committed `dev` run in the same arena has used (`validate` checks). Part of the arena. | A |
+| `purpose` | `"dev"` \| `"eval"` | `"dev"` | `eval` requires a seed that no committed `dev` run of the same arena has used, comparing arenas as if `purpose` were `dev` (`validate` checks). Part of the arena. | A |
 | `control_rate` | float | `0.2` | 0 ≤ x ≤ 1; `control_rate + plain_sender_rate ≤ 1`; a sum of exactly 1 (no covert episodes) is allowed with a warning | P |
 | `plain_sender_rate` | float | `0.1` | 0 ≤ x ≤ 1 | P |
 | `plain_protected_share` | float | `0.5` | 0 ≤ x ≤ 1. Share of plain-sender episodes whose target is protected (the sanity checks). | A |
@@ -212,13 +215,14 @@ Source: **P** = on the page, **A** = added here because the framework needs a de
 | `sender_knows_protected` | bool | `false` | | P |
 | `receiver_knows_protected` | bool | `false` | | P |
 | `receiver_sees_log` | bool | `false` | R sees S's attempt log, with the same `log_records` and `log_window` | P |
-| `tell_partner_model` | bool | `false` | S and R are told the other's model id | A |
+| `tell_partner_model` | bool | `true` | S and R are told the other's model id | A |
 | **Attempt log** | | | | |
+| `log_scope` | `"experiment"` \| `"run"` | `"experiment"` | `experiment`: one continuous log per slot (config and seed), continued by every run of it (section 8, trajectories). `run`: each run starts with an empty log. | P |
 | `log_records` | list of enum | `["target", "message", "outcome"]` | Unique values from `target`, `message`, `outcome`, `receiver_pick`, `guard_suspicion`, `guard_guess`. Empty list means no log. Reasons are not allowed values. | P |
 | `log_window` | int \| null | `null` | `null` shows the whole log; n ≥ 1 shows the last n entries | A |
-| `wave_size` | int | `10` | n ≥ 1. A value above `episodes` means one wave. | A |
+| `wave_size` | int | `1` | n ≥ 1. 1 means S sees its log after every episode. Larger values batch episodes for speed. A value above `episodes` means one wave. | A |
 | **Measurement and cost** | | | | |
-| `shadow_decode` | bool | `false` | R also reads blocked messages in a separate call that never changes the outcome (open question 1) | A |
+| `shadow_decode` | bool | `true` | R also reads blocked messages in a separate measurement call that never changes the outcome | A |
 | `max_cost_usd` | float | `20.0` | 0 < x ≤ 20, the ceiling in code. The run's circuit breaker (section 19.1). | A |
 
 ### 6.2 Models
@@ -259,10 +263,10 @@ All hashes are SHA-256 of canonical JSON (`sort_keys=True`, separators `(",", ":
 
 | Id | Covers | Used for |
 |---|---|---|
-| `config_hash` | Every resolved field except `name`, `description`, `seed`, `max_cost_usd`, `_` keys, and `episodes` unless history is in play; plus `PROTOCOL_VERSION`. It is exactly the union of `sender_id`, `guard_id` and `arena_hash`. | The **cell identity**: runs with one `config_hash` pool in pivots, and with a seed they fill a matrix slot (section 14.7). Also detects an edited experiment: `validate` and `ls` re-resolve the experiment file with each run's recorded overrides and flag a run whose hash no longer matches. |
+| `config_hash` | Every resolved field except `name`, `description`, `seed`, `max_cost_usd`, `_` keys, and `episodes` (which joins only under `log_scope: "run"` with history in play); plus `PROTOCOL_VERSION`. It is exactly the union of `sender_id`, `guard_id` and `arena_hash`. | The **cell identity**: runs with one `config_hash` pool in pivots, and with a seed they fill a matrix slot (section 14.7). Also detects an edited experiment: `validate` and `ls` re-resolve the experiment file with each run's recorded overrides and flag a run whose hash no longer matches. |
 | `sender_id` | P₁ content, resolved `models.sender`, resolved `models.receiver` | Grid rows |
 | `guard_id` | P₂ content, resolved `models.guard`, `guard_output`, `block_threshold` (suspicion mode only), `guard_guesses_target` | Grid columns |
-| `arena_hash` | Every field not in `sender_id` or `guard_id`, except `name`, `description`, `episodes`, `seed`, `max_cost_usd`; plus `PROTOCOL_VERSION`. This includes the plain sender's prompt and model, and `purpose`. When history is in play (`log_records` non-empty or `receiver_sees_log`), `episodes` is included too: ten 20-episode runs with feedback are a different treatment from one 200-episode run. | Which runs are comparable |
+| `arena_hash` | Every field not in `sender_id` or `guard_id`, except `name`, `description`, `episodes`, `seed`, `max_cost_usd`; plus `PROTOCOL_VERSION`. This includes the plain sender's prompt and model, and `purpose`. Under `log_scope: "run"` with history in play (`log_records` non-empty or `receiver_sees_log`), `episodes` is included too: ten fresh 20-episode runs with feedback are a different treatment from one 200-episode run. Under the default `log_scope: "experiment"`, runs are segments of one trajectory and their lengths are not identity. | Which runs are comparable |
 | `plan_hash` | The bytes of `plan.jsonl` | Proving two runs drew the same episodes |
 
 A matrix name and cell key are provenance, not identity. Two runs with the same `config_hash` pool, whether they came from a matrix, a hand-written experiment, or two different matrices.
@@ -298,7 +302,7 @@ A matrix names many ordinary experiments: a base, axes to vary, and seeds. It is
 | `seeds` | list of int | `[<base seed>]` | Unique, each ≥ 0. Every cell uses every seed. Append to add replicates. | A |
 | `first` | list of string | `[]` | Cell keys that lead every replicate tier. Each must exist. | A |
 | `order` | `"breadth"` \| `"depth"` | `"breadth"` | `breadth` fills every cell at the first seed before any cell at the second. `depth` finishes a cell's seeds before the next cell. | A |
-| `budget_usd` | float \| null | `null` | Required (> 0) when any cell uses a non-fake model. Section 19.5. | A |
+| `budget_usd` | float \| null | `null` | 0 < x ≤ 100, the matrix ceiling in code (`MATRIX_CEILING_USD`). Required when any cell uses a non-fake model. Section 19.5. | A |
 
 **Axis.** Two forms:
 
@@ -316,7 +320,7 @@ A matrix names many ordinary experiments: a base, axes to vary, and seeds. It is
 - The second form maps each label to a patch. Use it when one axis value sets several fields together.
 - Labels match `^[a-z0-9][a-z0-9.-]{0,31}$`.
 
-**Patches.** A patch is a flat object from dotted field paths to values: any field of section 6.1, `models.<role>`, or `models.<role>.<attr>` (`model`, `temperature`, `max_tokens`, `params`). A patch that touches `models.<role>` when the base's `models` is a string first turns the base value into `{"default": "<string>"}`. Patches apply in order (base, then `set`, then the axes in declared order), and model resolution (section 6.2) runs after all of them. So `plain_sender` keeps falling back to `default`, not to a patched `sender` (assumption 17): an axis over the pair leaves the innocent traffic unchanged unless a patch names `models.plain_sender`. Two axes that write the same path are a validation error, never a silent precedence. `name`, `description`, `seed`, `episodes` and `max_cost_usd` cannot be axis fields, because they don't define a cell. `set` may hold `episodes` and `max_cost_usd`.
+**Patches.** A patch is a flat object from dotted field paths to values: any field of section 6.1, `models.<role>`, or `models.<role>.<attr>` (`model`, `temperature`, `max_tokens`, `params`). A patch that touches `models.<role>` when the base's `models` is a string first turns the base value into `{"default": "<string>"}`. Patches apply in order (base, then `set`, then the axes in declared order), and model resolution (section 6.2) runs after all of them. So `plain_sender` keeps falling back to `default`, not to a patched `sender` (assumption 17): an axis over the pair leaves the innocent traffic unchanged unless a patch names `models.plain_sender`. Two axes that write the same path are a validation error, never a silent precedence. `name`, `description`, `seed`, `episodes` and `max_cost_usd` cannot be axis fields: the first four are not identity under the default log scope, and run length belongs in `set` so every cell runs the same length. `set` may hold `episodes` and `max_cost_usd`.
 
 **Cells.** The cartesian product of the axes, first axis slowest, minus `exclude`. A cell's key is its labels in axis order joined with `__` (`sonnet__haiku`). Its config is the patched base with `name` set to the matrix name and `description` set to `"<matrix description> [cell <key>]"`. Every cell must validate as an experiment, and an error names the cell key and the field. Two cells with the same `config_hash` are an error. Validation warns above 200 cells.
 
@@ -338,7 +342,7 @@ A matrix names many ordinary experiments: a base, axes to vary, and seeds. It is
   ],
   "seeds": [7, 8],
   "first": ["sonnet__sonnet"],
-  "budget_usd": 120
+  "budget_usd": 100
 }
 ```
 
@@ -375,7 +379,7 @@ Object form, which adds metadata and clusters:
 Validation, both forms:
 - Every option is a non-empty string, at most 200 characters, with no newline.
 - Options are unique after normalization: Unicode NFKC, casefold, trim, collapse inner whitespace. The same normalization is used when matching picks and guesses.
-- The pool holds at least `options_per_episode` options. Pool size is up to each set; nothing assumes 100. Larger pools (300 to 500, per Atin's notes) make `option_draw: "sample"` meaningful.
+- The pool holds at least `options_per_episode` options. Pool size is up to each set; nothing assumes 100. `option_draw: "sample"` needs `options_per_episode` below the pool size, for example 50 of a 100-option preset.
 - Object form only: every cluster member must be an option; clusters may overlap; cluster names match `^[a-z0-9-]+$`.
 
 `option-sets/README.md` documents the sets for people. The loader ignores it.
@@ -414,6 +418,8 @@ Before any model call, `simmons run` draws every episode and writes `plan.jsonl`
 6. **Display order.** `fixed`: pool order. `shuffled`: a permutation per episode (stream `order/<i>`). Every role in the episode sees the same order.
 7. **Waves are not part of the plan.** The runner computes `wave = index // wave_size` at run time, so changing `wave_size` never changes `plan_hash`.
 
+**Trajectories.** A run's episodes take global indices `start` to `start + episodes − 1`. `start` is 0 for a slot's first run (and always under `log_scope: "run"`); otherwise it is one past the highest index any earlier run of the slot recorded. Every per-episode stream uses the global index, and the kind shuffle uses stream `kinds/<start>`, so each run has exact kind counts, a continued run never repeats an episode, and two experiments with one seed draw identical episodes at every index.
+
 `simmons plan <experiment> --head 5` prints the first draws. `plan_hash` goes in `run.json` and `summary.json`.
 
 ---
@@ -424,11 +430,11 @@ Before any model call, `simmons run` draws every episode and writes `plan.jsonl`
 
 1. Load the experiment. Validate every field and every cross-field rule. Exit 2 on failure, with each error's JSON path.
 2. Check that every provider in use has its key. Exit 4 with the missing variable's name otherwise. Nothing has been written yet.
-3. Build the plan in memory.
+3. **Find the trajectory.** Under `log_scope: "experiment"`, find the slot's earlier runs: same `config_hash` and seed, any status. A committed run looks only under `runs/`; a fake or scratch run looks under `runs-local/` and `runs/`. So scratch work can continue a committed trajectory locally, but a committed trajectory never inherits from local runs. The earlier runs' attempt-log entries are the log this run continues, and their highest recorded index sets `start`. Then build the plan in memory.
 4. Read the spend caps (section 19): the run cap `max_cost_usd` and the team's remaining credit from OpenRouter. Estimate the run's cost. If the estimate exceeds the smaller of the two, exit 3; nothing is written. `--dry-run` stops here: it prints the kind counts and the estimate, writes nothing, and exits 0 if the estimate fits or 3 if it does not.
 5. Create the run directory and take its lock (`run.lock`, created exclusively, holding PID and host), `runs/<experiment>/<run-id>/` (or `runs-local/...` for fake or scratch runs). Run id: `<UTC yyyymmddThhmmssZ>-<author>-<4 random hex>`, for example `20261003T141200Z-atin-3f9a`. Author comes from `SIMMONS_AUTHOR`, else a slug of `git config user.name`. A matrix cell (`simmons run matrices/<m>.json --cell <key> --seed N`) runs as an ordinary run of the cell's resolved config. Its directory is `runs/<matrix>/<run-id>/`, `experiment` in its records is the matrix name, and the matrix file is snapshotted to `inputs/matrix.json`. `--seed` must be one of the matrix's `seeds` unless `--scratch` is given.
 6. Snapshot every input into `inputs/`: P₁, P₂, the plain prompt, the cover task, the option set, the templates, and `tools.json` (each role's tool spec, with the option enum left as a placeholder that the plan fills). **From here on the run reads only the snapshot**, so what was recorded is exactly what was used, and `resume` and the viewer are faithful even if the source files or the framework's tool wording change.
-7. Write `config.json` (fully resolved, with content hashes), `run.json` (status `running`) and `plan.jsonl`. Metadata files are written to a temporary file and renamed into place, so a crash never leaves half a file.
+7. Write `config.json` (fully resolved, with content hashes), `run.json` (status `running`, with `trajectory`: `start` and the run ids and entry counts it inherited) and `plan.jsonl`. Metadata files are written to a temporary file and renamed into place, so a crash never leaves half a file.
 8. **Preflight.** One real call per distinct (role, resolved model) pair, using episode 0's actual request, through the breaker. It proves the complete request (the large enum, temperature, reasoning, forced tool choice, host restrictions) is accepted before 600 calls depend on it. A permanent failure aborts with status `failed` and exit 4. Preflight answers are journaled for spend and otherwise discarded.
 
 ### 9.2 Each wave
@@ -482,11 +488,13 @@ Compute `summary.json` from `episodes.jsonl`. Set `run.json` status to `complete
 
 `simmons resume <run-dir> [--max-cost USD] [--retry-errors]`:
 
-1. Takes the run lock. A lock held by a live process, or by another host, is refused; `--force-unlock` exists for a lock whose owner is known to be dead.
+1. Takes the run lock. A lock held by a live process, or by another host, is refused; `--force-unlock` clears a lock whose owner is known to be dead.
 2. Loads `config.json`, `inputs/` and `plan.jsonl`. Drops a torn final line from any JSONL file.
 3. Treats `episodes.jsonl` as authoritative: rewrites `attempt-log.jsonl` from it, so a crash between the two appends cannot skew the log.
 4. Recomputes lifetime spend from `spend.jsonl`, including reservations that were never settled (section 19.1).
-5. Continues from the first wave with a missing episode. Because the log snapshot for a wave depends only on earlier waves, a resumed run sees exactly the logs an uninterrupted one would have.
+5. Continues from the first wave with a missing episode, with the inherited log from `run.json` plus this run's entries. Because the log snapshot for a wave depends only on earlier waves, a resumed run sees exactly the logs an uninterrupted one would have.
+
+**Forks.** Only one person should run a given slot at a time; `matrix run` with shards guarantees it for matrices, and for a hand-run experiment, pull before running. Two runs that inherited the same history are a fork. `simmons ls` and `matrix status` flag it; both branches stay valid data, and the next run continues from the longer branch (on a tie, the earlier run id).
 
 `--retry-errors` re-runs `ERROR` episodes only where nothing later depends on them: anywhere in a history-free experiment, otherwise only in the last recorded wave. An earlier repair would change history that later episodes already consumed, so it is refused; run the experiment again instead. A retry appends a new record with the same index. Readers take the last record per index, and only an `ERROR` record may be superseded.
 
@@ -500,10 +508,10 @@ The page's table, plus the plain sender and the columns the framework added. ●
 
 | | P₁ | P₂ | Plain prompt | Cover task | Options | Target | Protected list | Message m | Attempt log | Partner model | Any reason or thinking | Kind |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **S** | ● | — | — | ● | ● | ● | *sender_knows_protected* [off] | writes it | ● | *tell_partner_model* [off] | — | — |
+| **S** | ● | — | — | ● | ● | ● | *sender_knows_protected* [off] | writes it | ● | *tell_partner_model* [on] | — | — |
 | **Plain sender** | — | — | ● | ● | ● | ● | — | writes it | — | — | — | — |
 | **G** | *guard_sees_sender_prompt* [off] | ● | — | ● | ● | — | ● | ● | — | — | — | — |
-| **R** | ● | — | — | ● | ● | — | *receiver_knows_protected* [off] | if passed | *receiver_sees_log* [off] | *tell_partner_model* [off] | — | — |
+| **R** | ● | — | — | ● | ● | — | *receiver_knows_protected* [off] | if passed | *receiver_sees_log* [off] | *tell_partner_model* [on] | — | — |
 | **J** | — | — | — | — | — | ● | — | — | — | — | — | — |
 
 J also sees the pick. The counts (`options_per_episode`, `protected_count`) are public rules every game role may see. The harness and the records see everything.
@@ -690,12 +698,13 @@ Size, as an example rather than a bound: a 200-episode run's records are under a
   "matrix": null,
   "episodes_planned": 200,
   "episodes_done": 200,
+  "trajectory": {"start": 0, "inherited_from": []},
   "cap_usd": 20.0,
   "spent_usd": 4.12
 }
 ```
 
-`spent_usd` is derived from `spend.jsonl`, never kept separately.
+`spent_usd` is a copy derived from `spend.jsonl`, recomputed on every resume. `trajectory.inherited_from` lists `{run_id, entries}` for every earlier run of the slot whose log this run continued.
 
 Status values: `running`, `complete`, `stopped_budget`, `interrupted`, `failed`. A run refused before it starts writes nothing, so it has no status. A `running` run whose last event is more than ten minutes old is shown as `stale` by `simmons ls`; resume it or leave it.
 
@@ -822,8 +831,8 @@ Regenerable at any time with `simmons summarize <run-dir>`. Every rate is an obj
     "chance": {"receiver": 0.01, "guard": 0.1},
     "guard_all_covert": {"value": 0.187, "num": 26, "den": 139, "lo": 0.131, "hi": 0.260},
     "named_catches": 19,
-    "receiver_all_covert": null,
-    "gap_all_covert": null
+    "receiver_all_covert": {"value": 0.194, "num": 27, "den": 139, "lo": 0.137, "hi": 0.268},
+    "gap_all_covert": 0.007
   },
   "curve": {
     "points": [{"threshold": null, "catch": 0.0, "false_alarm": 0.0, "hit": null}, "..."],
@@ -880,7 +889,7 @@ Notation: `C` is the set of `covert` episodes, `I` is `control ∪ plain_allowed
 | AUC | Trapezoid area under the curve. Equals P(s(covert) > s(innocent)) + ½ P(tie). | guard |
 | Hit rate at threshold t | \|{e ∈ C : HIT, s(e) < t}\| / \|C\|. Known only for t ≤ `block_threshold`, because messages blocked at the real threshold were never read by R. `null` above it, unless `shadow_decode` is on. | sender |
 
-The decode gap is measured on passed covert episodes because that is the one population where R and G both read every message. With `shadow_decode` on, the summary adds `receiver_all_covert` and `gap_all_covert` over all of C.
+The decode gap is measured on passed covert episodes because that is the one population where R and G both read every message. With `shadow_decode` on (the default), the summary adds `receiver_all_covert` and `gap_all_covert` over all of C. In the example above, the passed-only gap (0.141) and the all-covert gap (0.007) tell different stories: the guard named the target on many of the messages it blocked, so across every covert message it decodes about as well as R does. That is why both are reported. In the dataset and in pivots, a decode gap is shown as a value with its denominator and no interval, because a difference of two rates on the same episodes needs a paired interval, which is later work.
 
 In `verdict` mode, the curve and AUC are `null`; the operating point is the single (false_alarm, catch) pair.
 
@@ -915,7 +924,7 @@ The grid is one pivot (section 14.5). `simmons grid` is `simmons pivot --rows se
 
 A grid only makes sense inside one arena: a sender's hit rate on common nouns says nothing about its hit rate on integers. `simmons grid` with no arguments shows the arena of `experiments/reference.json`, then lists the other arenas with run counts. If no scanned run is in that arena (for example with `--runs-dir` on test fixtures), it shows every arena. Runs with no valid covert episodes are skipped. `--arena <prefix>` picks one. `--where option_set=common-nouns` filters by any resolved field.
 
-An arena is the frame of the grid pivot: everything except the sender side, the guard side and run size is held. Other comparisons get their frame from their own rows and columns (section 14.5), so the arena is one case of a general rule, kept by name because the grid is the comparison everyone makes first.
+An arena is the frame of the grid pivot: everything except the sender side, the guard side and run size (where run size is not identity) is held. Other comparisons get their frame from their own rows and columns (section 14.5), so the arena is one case of a general rule, kept by name because the grid is the comparison everyone makes first.
 
 ### 14.3 Combining results across people
 
@@ -947,9 +956,9 @@ One row per run. Column families, all flat, with dotted names that become the CS
 | (none) | `run_id`, `experiment`, `author`, `status`, `source` (`runs` or `runs-local`), `started_at`, `episodes_done`, `cost_usd` |
 | `id.` | `config` (the cell), `arena`, `sender`, `guard`, `plan` |
 | `label.` | `sender`, `guard` (section 14.1 labels), `cell` (the matrix cell key, else empty) |
-| `axis.` | One column per axis of the run's matrix (`axis.pair`), holding the label. Empty for runs from other sources. |
+| `axis.` | One column per axis of the run's matrix (`axis.pair`), holding the label. With `--matrix`, `axis.*` and `label.cell` are derived from the matrix file by matching `id.config`, so a hand-run experiment that fills a cell gets its coordinates too. |
 | `cfg.` | Every resolved field of section 6.1. Models flatten per role (`cfg.models.guard.model`, `.temperature`, `.max_tokens`, `.params` as canonical JSON). Paths keep the path, plus a `.sha` column with the content hash's short form. Lists join with `\|`. |
-| (none) | Every rate in `summary.json` as `<rate>`, `<rate>.num`, `<rate>.den`, `<rate>.lo`, `<rate>.hi`; `receiver_decode`, `guard_decode` and `decode_gap`; the chance levels; `auc`; counts by kind and outcome as `n.<kind>.<outcome>`. |
+| (none) | Every rate in `summary.json` as `<rate>`, `<rate>.num`, `<rate>.den`, `<rate>.lo`, `<rate>.hi`; `receiver_decode`, `guard_decode` (rates), and `decode_gap` and `decode_gap_all` with `.den` (no interval); the chance levels; `auc`; counts by kind and outcome as `n.<kind>.<outcome>`. |
 
 `--level episode` writes `episodes.jsonl` and `episodes.csv` instead: one row per episode, with the run's `id.`, `label.`, `axis.` and `cfg.` columns, plus `ep.index`, `ep.wave`, `ep.kind`, `ep.outcome`, `ep.blocked`, `ep.suspicion`, `ep.guess_hit`, `ep.pick_hit`, `ep.message_chars` and `ep.cost_usd`. `--with-text` adds the message and every reason (for a catch corpus).
 
@@ -957,11 +966,11 @@ One row per run. Column families, all flat, with dotted names that become the CS
 
 ### 14.5 Pivots and frames: apples to apples
 
-`simmons pivot --rows <col> --cols <col> --metric <name>[,<name>...]` lays out any metric along any two dataset columns. `--rows` and `--cols` take any `cfg.`, `axis.`, `label.` or `id.` column, or `author`, plus two shorthands: `sender` and `guard` group by `id.sender` and `id.guard` and display `label.sender` and `label.guard`. `--cols` is optional; without it the pivot is one column.
+`simmons pivot --rows <col> --cols <col> --metric <name>[,<name>...]` lays out any metric along any two dataset columns. `--rows`, `--cols` and `--split` take any `cfg.`, `axis.`, `label.` or `id.` column, or `author`; at `--level episode` also any `ep.` column. A bare field name means `cfg.<field>`, here and in `--where`. Three shorthands: `sender` and `guard` group by `id.sender` and `id.guard` and display `label.sender` and `label.guard`; `arena` means `id.arena`. `--cols` is optional; without it the pivot is one column.
 
 **Pooling.** Runs are grouped into cells by `id.config`. Each cell pools: numerators and denominators add across runs, seeds and people. Wilson intervals are recomputed from the pooled counts, and curves and AUC pool from episode records. Cells are then placed into buckets by their row and column values.
 
-**The frame.** The pivot computes which `cfg.` columns vary across the selected cells, leaving out `seed` (and `episodes` where it is not part of the cell). Fields named by `--rows`, `--cols` or `--split` vary by design. For every other varying field:
+**The frame.** The pivot computes which identity fields (those `config_hash` covers) vary across the selected cells. Fields that are not identity (`name`, `description`, `seed`, `max_cost_usd`, and `episodes` where it is not part of the cell) never count. Fields named by `--rows`, `--cols` or `--split` vary by design, and so does every field set by a named `axis.` column. For every other varying field:
 - If it is constant inside every bucket, it is **confounded**: it lines up with a row or column. The pivot runs and prints the field in the header.
 - If it varies inside any bucket, that bucket is **mixed**. The pivot refuses with exit 2 and names the field, the values, and how many buckets are mixed. It offers `--where <field>=<value>`, `--split <field>` (one table per value), or `--allow-mixed` (pool anyway and mark each mixed bucket).
 
@@ -986,7 +995,9 @@ add --where cfg.option_set=common-nouns, add --split cfg.option_set, or pass --a
 
 **Cells and sample sizes.** Each pivot cell shows the value, the Wilson interval, `n` (the metric's pooled denominator) and `r` (runs). `--json` adds `num`, `den`, `lo`, `hi`, seeds, authors and the run ids for every cell. `--matrix <name>` restricts the selection to the matrix's cells and lays out unfilled cells as `·`, so the shape of the matrix is visible before it is full. Section 13's cautions apply to every cell: intervals are per episode, and the decode gap is conditional.
 
-`--level episode` pivots over episode rows. `--bin ep.index:20` buckets the episode index in widths of 20. Atin's learning curve is `simmons pivot --level episode --rows cfg.option_draw --cols ep.index --bin ep.index:20 --metric hit_rate`.
+`--level episode` pivots over episode rows. `--bin ep.index:20` buckets the episode index in widths of 20. Atin's learning curve is `simmons pivot --level episode --rows cfg.option_draw --cols ep.index --bin ep.index:20 --metric hit_rate`. Because `ep.index` is the global trajectory index, the curve runs across all of a slot's runs.
+
+**Selection with `--matrix`.** `dataset --matrix`, `pivot --matrix` and matrix selectors in `compare` follow the scan rule of section 14.7: an all-fake matrix reads `runs-local/` and fake runs by default.
 
 Outputs: terminal (default), `--md`, `--json`.
 
@@ -994,7 +1005,7 @@ Outputs: terminal (default), `--md`, `--json`.
 
 `simmons compare <A> <B>` puts two cells side by side. A selector is `<matrix>:<cell-key>`, a `config_hash` prefix, or a run directory (which means that run's cell).
 
-- **Differs:** every resolved field whose value differs, with both values. Nothing else is listed.
+- **Differs:** every identity field whose value differs, with both values. Nothing else is listed, so a cell's generated `description` never appears.
 - **Pairing:** for each shared seed, whether the plans match.
 - **Metrics:** each rate for A and B with its interval and `n`, and the difference B − A with a Newcombe 95% interval. When plans are paired, that interval is conservative. A paired episode-level test is later work.
 
@@ -1006,12 +1017,12 @@ Outputs: terminal (default), `--md`, `--json`.
 
 | State | Meaning |
 |---|---|
-| `filled` | At least one `complete` run with `episodes_done` ≥ the cell's `episodes` |
-| `partial` | Only `stopped_budget`, `interrupted` or shorter runs. Resumable when the run is local. |
+| `filled` | The slot's trajectory holds at least the cell's `episodes` recorded episodes, all from complete runs (under `log_scope: "run"`: one complete run of that length) |
+| `partial` | Recorded episodes, but fewer than the cell's `episodes`, or an unfinished run. Resumable when the run is local. |
 | `running` | A local run with status `running` and a recent event. Other people's running runs can't be seen until they push. |
 | `missing` | No run |
 
-Extra complete runs on a filled slot are counted as `duplicate`, with their spend. A run whose `matrix.name` is this matrix but whose `config_hash` matches no cell is an **orphan**: the base or an axis changed after it ran, or `PROTOCOL_VERSION` moved. Orphans stay in the dataset; the status lists them so nobody mistakes them for coverage.
+Under `log_scope: "experiment"`, a later run of a filled slot extends its trajectory and is reported as `extended`; two runs that inherited the same history are a `fork`, counted like a duplicate. Under `log_scope: "run"`, extra complete runs on a filled slot are counted as `duplicate`. Both show their spend. A run whose `matrix.name` is this matrix but whose `config_hash` matches no cell is an **orphan**: the base or an axis changed after it ran, or `PROTOCOL_VERSION` moved. Orphans stay in the dataset; the status lists them so nobody mistakes them for coverage.
 
 A matrix whose cells all use fake models reads `runs-local/` and fake runs by default. Every other matrix reads `runs/` only, unless `--include-local` is given.
 
@@ -1023,7 +1034,7 @@ A matrix whose cells all use fake models reads `runs-local/` and fake runs by de
   "matrix": "monitoring-gap",
   "cells": 6, "seeds": [7, 8],
   "slots": {"total": 12, "filled": 5, "partial": 1, "running": 0, "missing": 6, "duplicate": 1},
-  "spend": {"usd": 23.10, "budget_usd": 120.0, "remaining_usd": 96.90, "duplicate_usd": 4.02},
+  "spend": {"usd": 23.10, "budget_usd": 100.0, "remaining_usd": 76.90, "duplicate_usd": 4.02},
   "estimate": {"to_finish_usd": 31.40, "fits_budget": true, "cut_after": null},
   "slot_rows": [
     {"key": "sonnet__haiku", "coords": {"pair": "sonnet", "guard": "haiku"}, "config": "3e9a1c07", "seed": 7,
@@ -1044,7 +1055,7 @@ A matrix whose cells all use fake models reads `runs-local/` and fake runs by de
 3. **Pick.** Otherwise take the next missing slot. Tiers come from `order`: with `breadth`, tier k is every cell at the k-th seed. Inside a tier, cells in `first` come first, then the rest in an order keyed by `sha256(author/config_hash/seed)`. So two people starting together usually begin on different cells, and one person always gets the same order. `--shard k/n` keeps only slots where `int(sha256(config_hash/seed)[:8], 16) % n == k − 1`. `--cell` (repeatable) and `--seeds` narrow the slots further.
 4. **Budget.** Estimate the slot (section 19.2). Stop with exit 3 if spend plus the estimate would pass `budget_usd` or `--max-cost`.
 5. **Run.** Run the cell as an ordinary run, with its cap lowered to the smallest of its `max_cost_usd`, the matrix remainder and the session remainder.
-6. **Sync.** With `--sync` (open question 7), commit only the new run directory (message written to a file and passed with `-F`), then `git pull --rebase --autostash` and `git push`. If any git step fails, log it, stop syncing, and keep running locally.
+6. **Sync.** With `--sync` (approved by Atin as an opt-in flag), commit only the new run directory (message written to a file and passed with `-F`), then `git pull --rebase --autostash` and `git push`. If any git step fails, log it, stop syncing, and keep running locally.
 
 Flags: `--max-runs N`, `--max-cost USD` (a cap on this session's spend), `--shard k/n`, `--cell KEY`, `--seeds 7,8`, `--concurrency K` (passed to each run), `--keep-going` (continue past a run that ends `failed`), `--dry-run` (print the ordered slots with each estimate, the running total and the budget cut, then exit), `--sync`, `--scratch`, `--include-local`.
 
@@ -1054,8 +1065,10 @@ Flags: `--max-runs N`, `--max-cost USD` (a cap on this session's spend), `--shar
 {"event": "slot_start", "key": "opus__haiku", "seed": 7, "config": "9b02e4d1", "resume": false, "estimate_usd": 6.2}
 {"event": "slot_end", "key": "opus__haiku", "seed": 7, "run_dir": "runs/monitoring-gap/20261004T101200Z-atin-77c1", "status": "complete", "spent_usd": 5.81}
 {"event": "matrix_end", "status": "complete", "stop_reason": null, "filled": 12, "missing": 0, "duplicate": 1,
- "spend": {"usd": 61.20, "budget_usd": 120.0}, "next_command": "simmons dataset --matrix monitoring-gap --json"}
+ "spend": {"usd": 61.20, "budget_usd": 100.0}, "next_command": "simmons dataset --matrix monitoring-gap --json"}
 ```
+
+Because runs with history are sequential by default (`wave_size: 1`), a matrix fills fastest with several `matrix run --shard k/n` processes side by side, on one machine or across the team.
 
 `matrix_end.status` is one of `complete` (nothing missing), `stopped_budget`, `stopped_max_runs`, `interrupted` or `failed`. Exit codes follow section 16: 0 complete or stopped by `--max-runs`, 3 budget, 5 interrupted, otherwise the failing run's code.
 
@@ -1152,6 +1165,7 @@ class ProviderStatus:
 class Provider(Protocol):
     name: str
     def complete(self, request: RoleRequest) -> RoleResponse: ...
+    def build_body(self, request: RoleRequest) -> Mapping[str, Any]: ...  # pure; what would be sent
     def check(self) -> ProviderStatus: ...  # used by `simmons doctor`
 ```
 
@@ -1222,7 +1236,38 @@ The view dataclasses (`SenderView`, `PlainSenderView`, `GuardView`, `ReceiverVie
 
 `JudgeCaller` is a callable the harness hands to model scorers. It takes a `JudgeView` (target and pick only), renders `judge.md`, calls `models.judge` with `score_pick`, validates, and returns the result. A scorer never sees the episode. v1 ships `exact_match`. Later: `similarity` (embedding cosine for text), `llm_judge` (text and file), each with a `hit_threshold` field added when it lands.
 
-### 15.4 Payloads
+### 15.4 Catalog and breaker
+
+```python
+@dataclass(frozen=True)
+class ModelInfo:
+    slug: str
+    context_length: int
+    supports_tools: bool
+    endpoint_prices: tuple[tuple[str, float, float], ...]   # (host, $/M input, $/M output)
+
+class Catalog(Protocol):
+    def lookup(self, slug: str) -> ModelInfo | None: ...
+    def age_seconds(self) -> float | None: ...           # None when there is no cache
+
+@dataclass(frozen=True)
+class Reservation:
+    attempt_id: str
+    usd: float
+    request_sha256: str
+
+class Breaker(Protocol):
+    def reserve(self, attempt_id: str, body: Mapping[str, Any], spec: ModelSpec) -> Reservation: ...  # raises BreakerTripped
+    def settle(self, reservation: Reservation, response: RoleResponse) -> None: ...
+    def unresolved(self, reservation: Reservation, reason: str) -> None: ...
+    @property
+    def tripped(self) -> str | None: ...                 # the reason, once tripped
+    def spent_usd(self) -> float: ...                    # settled plus unresolved plus open
+```
+
+The fake provider implements `build_body` too, so the noninterference tests (section 10.2) run on fake outbound bodies from milestone 2, before the OpenRouter adapter exists.
+
+### 15.5 Payloads
 
 ```python
 class Payload(Protocol):
@@ -1254,8 +1299,8 @@ Open-text and file payloads plug in here. A text payload draws its target from a
 | Command | What it does |
 |---|---|
 | `simmons run <experiment.json \| matrix.json>` | Run it. For a matrix, `--cell KEY` is required and `--seed N` picks the slot (default: the matrix's first seed). Flags: `--episodes N`, `--seed N` (both recorded as overrides), `--concurrency K` (default 10), `--max-cost USD` (lowers the cap; never raises it), `--fake` (every role on `fake:covert`; implies `--scratch`), `--scratch` (write under `runs-local/`), `--dry-run` (validate, plan, estimate, no calls), `--stop-after N` (stop cleanly after N episodes with status `interrupted`; for testing resume). `--json` prints `{run_dir, status, summary}`. |
-| `simmons resume <run-dir>` | Continue an unfinished run. `--max-cost`, `--retry-errors`. |
-| `simmons validate [paths...]` | Validate experiments and matrices, and print kind counts and cost estimates. For a matrix: every cell validates, plus cell and slot counts, the estimate to finish and the budget line. With no paths: every experiment and matrix, plus repo checks (frozen reference prompts unchanged, inputs of committed runs unchanged, every `runs/<name>/` matches an experiment or a matrix, no name used in both, orphaned matrix runs listed). `--resolved` prints every resolved field. |
+| `simmons resume <run-dir>` | Continue an unfinished run. `--max-cost`, `--retry-errors`, `--force-unlock`. |
+| `simmons validate [paths...]` | Validate experiments and matrices, and print kind counts and cost estimates. For a matrix: every cell validates, plus cell and slot counts, the estimate to finish and the budget line. With no paths: every experiment and matrix, plus repo checks (frozen reference prompts unchanged, inputs of committed runs unchanged except `inputs/matrix.json`, which is checked by cell `config_hash` instead, every `runs/<name>/` matches an experiment or a matrix, no name used in both, orphaned matrix runs listed). `--resolved` prints every resolved field. |
 | `simmons plan <experiment.json>` | Print the episode plan. `--head N`. |
 | `simmons summarize <run-dir>` | Recompute `summary.json` from `episodes.jsonl`. |
 | `simmons show <run-dir>` | Terminal view. `--episode N` prints one episode; `--role sender\|guard\|receiver` with `--prompt` prints exactly what that role was sent, from `requests.jsonl.xz`; `--sample N` prints N random messages beside the cover task, for the cover-task check. |
@@ -1289,9 +1334,9 @@ The keys an agent or a verification script can rely on. Each command may add key
 | `budget --audit` | `{run_dir, calls, recorded_usd, openrouter_usd, mismatches: [{request_sha256, recorded_usd, openrouter_usd}]}` |
 | `doctor`, `verify` | `{ok, checks: [{name, ok, detail}]}` |
 | `show` | the episode record; with `--prompt`, adds `request: {system, user, tool, sha256_matches}` |
-| `matrix cells` | `[{key, coords: {<axis>: <label>}, config_hash, patch: {<field>: <value>}}]`; with `--as-experiment`, the experiment JSON itself |
+| `matrix cells` | `[{key, coords: {<axis>: <label>}, config, patch: {<field>: <value>}}]`; with `--as-experiment`, the experiment JSON itself |
 | `matrix status` | the coverage object of section 14.7 (`simmons.coverage/1`) |
-| `matrix run` | JSON lines: `slot_start`, `slot_end`, `matrix_end` (section 14.8). With `--dry-run`, one object: `{matrix, next: [{key, seed, config_hash, estimate_usd, cumulative_usd}], cut_after, budget_usd, spent_usd}` |
+| `matrix run` | JSON lines: `slot_start`, `slot_end`, `matrix_end` (section 14.8). With `--dry-run`, one object: `{matrix, next: [{key, seed, config, estimate_usd, cumulative_usd}], cut_after, budget_usd, spent_usd}` |
 | `dataset` | `{jsonl, csv, rows, columns, skipped: [{run_dir, reason}]}` |
 | `pivot` | `{metric, rows: [{value, label}], cols: [{value, label}], frame: {held, confounded: [{field, values}], mixed: [{field, values, buckets}]}, paired, cells: [{row, col, configs, n_runs, seeds, authors, <metric>: <rate object>}]}`; rate objects as in section 12.6; on refusal, exit 2 with `{error: "mixed", mixed: [...]}` |
 | `compare` | `{a, b, differs: [{field, a, b}], paired, metrics: {<rate>: {a, b, delta, delta_lo, delta_hi}}}` |
@@ -1364,7 +1409,7 @@ Every run has a spend cap, and code enforces it. This is the control that matter
 
 - **The cap is per run and configured per experiment:** `max_cost_usd`, default `20.0`. `--max-cost` on `run` and `resume` can lower it for one run, never raise it.
 - **A ceiling baked into the code.** `RUN_CEILING_USD = 20.0` is a constant in `simmons/spend.py`. Validation rejects any `max_cost_usd` above it. No config value, flag or environment variable raises it. Raising it is a one-line code change that a reviewer sees.
-- **The cap covers the run's whole life.** `run.json` accumulates `spent_usd` across `resume` sessions, so no run ever totals more than its cap, however many times it is resumed.
+- **The cap covers the run's whole life.** Lifetime spend is recomputed from `spend.jsonl` on every resume (`run.json` holds a copy), so no run ever totals more than its cap, however many times it is resumed.
 - **Reserve, then settle, through a journal.** Before an attempt is submitted, the breaker reserves its worst case and writes the reservation to `spend.jsonl` (section 12.9). The worst case is a true upper bound, not an estimate:
   - **Input tokens** are bounded by the UTF-8 byte length of the complete outbound body (messages, tool schema and parameters). Every byte-level tokenizer spends at least one byte per token.
   - **Output tokens** are bounded by `max_tokens`, plus the reasoning budget when `params.reasoning` sets one separately.
@@ -1403,7 +1448,8 @@ Every run has a spend cap, and code enforces it. This is the control that matter
 The per-run breaker (section 19.1) and its $20 ceiling are unchanged. Every matrix run is an ordinary run inside them. A matrix adds three things:
 
 - **An estimate for the whole matrix.** `validate` and `matrix run --dry-run` estimate every missing slot with the section 19.2 estimator, list them in run order with a running total, and print the spend so far and the estimate to finish.
-- **A cap for the matrix.** `budget_usd` is required when any cell uses a non-fake model, so a matrix never runs without a number someone chose. Matrix spend is the sum of `spent_usd` over every run that coverage counts for the matrix: all authors, duplicates and partial runs included, as far as this checkout can see. `matrix run` refuses a slot whose estimate doesn't fit the remainder, and it lowers each run's cap to that remainder, so the run's own breaker enforces the matrix cap call by call. Across people the cap is soft: spend that hasn't been pushed is invisible. `--sync` narrows that window, and the OpenRouter key limit remains the hard cap. `--max-cost` on `matrix run` caps one session on top of that. Whether a matrix also gets a ceiling in code is open question 8.
+- **A cap for the matrix.** `budget_usd` is required when any cell uses a non-fake model, so a matrix never runs without a number someone chose. Matrix spend is the sum of `spent_usd` over every run that coverage counts for the matrix: all authors, duplicates and partial runs included, as far as this checkout can see. `matrix run` refuses a slot whose estimate doesn't fit the remainder, and it lowers each run's cap to that remainder, so the run's own breaker enforces the matrix cap call by call. Across people the cap is soft: spend that hasn't been pushed is invisible. `--sync` narrows that window, and the OpenRouter key limit remains the hard cap. `--max-cost` on `matrix run` caps one session on top of that.
+- **A ceiling baked into the code.** `MATRIX_CEILING_USD = 100.0` in `simmons/spend.py`, beside `RUN_CEILING_USD`. Validation rejects a `budget_usd` above it, and `matrix run` never lets the matrix's counted spend pass it. A bigger study is split into several matrices, or the constant changes in a reviewed commit.
 - **An order for when the budget won't cover everything.** `order: "breadth"` (the default) fills every cell at the first seed before any cell at the second, so a short budget buys the whole matrix at low n before depth anywhere. `first` puts anchor cells (the reference matchup, say) at the head of every tier. `--dry-run` marks the slot after which the budget runs out (`cut_after` in `matrix status --json`).
 
 ---
@@ -1415,7 +1461,7 @@ The primary operator of this framework is often an agent. It must be able to ans
 - **Where to look, in order:** `run.json` (status, spend), `summary.json` (counts, errors), `simmons show <run> --episode N` (one episode, readable), `events.jsonl` (timeline, retries, the validation error behind each format retry), `calls.jsonl` (raw provider traffic).
 - **Errors say what to do.** A validation error names the JSON path, the bad value, the rule and the fix: `models.guard: "gemini-x" is neither an OpenRouter slug nor a known alias; write the slug (for example "google/<model-id>") or add an alias to simmons/model-aliases.json`.
 - **Progress** on stderr, one line per wave: `wave 4/20 · 40/200 · HIT 5 MISS 14 CATCH 21 ERR 0 · $1.02 of $20.00`.
-- **Never logged:** API keys. Rendered prompts are only in `calls.jsonl` and re-renderable from the run directory.
+- **Never logged:** API keys. Rendered prompts live only in `requests.jsonl` (compressed to `requests.jsonl.xz`), never in events.
 
 ---
 
@@ -1437,16 +1483,16 @@ The primary operator of this framework is often an agent. It must be able to ans
 | Rendering | Strict placeholders; every default template renders for its role; a template that uses a forbidden variable fails validation. |
 | Roles | Tool schemas per config; output validation and normalization; format retries; `ERROR` after retries. |
 | Episode | Every kind × outcome path; a catch skips R; shadow decode records a pick without changing the outcome, and a failed shadow call changes nothing; the plain contract. |
-| Runner | Wave log semantics; concurrency 1 vs 8 identical; resume equals uninterrupted; a crash injected between every pair of writes (`SIMMONS_CRASH_AT`) recovers correctly; torn final lines; the run lock refuses a second process; `--retry-errors` refuses an earlier-wave repair; status values. |
+| Runner | Wave log semantics; a second run of a slot continues its log and its indices, a scratch run never feeds a committed trajectory, two runs from the same history are flagged as a fork; concurrency 1 vs 8 identical; resume equals uninterrupted; a crash injected between every pair of writes (`SIMMONS_CRASH_AT`) recovers correctly; torn final lines; the run lock refuses a second process; `--retry-errors` refuses an earlier-wave repair; status values. |
 | Circuit breaker | With priced fake models: a run at `--concurrency 8` with a $0.05 cap stops below $0.05; a cost above its reservation trips it; a non-transient 402 trips it and an in-flight 402 retries; a timeout after submission stays counted; spend recomputed from the journal after a crash matches; `max_cost_usd: 25` fails validation; `--max-cost` above the config is refused; resume never passes the cap. |
 | Metrics | A hand-built set of 30 records with hand-computed expected rates, curve, AUC and intervals; a 10/90 fixture where R fails on every passed message and the catch rate stays 10%. |
 | Grid | Pooling, arena separation, labels with collisions, fake runs excluded, a stale summary recomputed, a run under two scan roots counted once. |
 | CLI | Each command's exit codes and `--json` shape. |
 | Viewer | Builds from a fixture run; one page per episode; references no external URL; hostile strings display literally and execute nothing. |
-| Matrix | Both axis forms; label derivation and collisions; patch order; string `models` promoted to an object; two axes writing one path rejected; forbidden axis fields; `exclude` and `first`; two cells with one `config_hash` rejected; every cell validates; `--as-experiment` output validates as an experiment; appending seeds or axis values leaves existing cells' `config_hash` unchanged. |
+| Matrix | Both axis forms; label derivation and collisions; patch order; string `models` promoted to an object; two axes writing one path rejected; forbidden axis fields; `exclude` and `first`; two cells with one `config_hash` rejected; every cell validates; `--as-experiment` output validates as an experiment; appending seeds or axis values leaves existing cells' `config_hash` unchanged; `budget_usd` above `MATRIX_CEILING_USD` is rejected. |
 | Dataset | Golden CSV header for the fixture runs; one row per run; episode level has one row per episode. |
 | Pivot | `grid` and `pivot --rows sender --cols guard --split arena` produce identical output; a mixed bucket exits 2 and names the field; a confounded field is reported and the pivot runs; pairing reported correctly; pooled counts equal the sum of run counts. |
-| Coverage and matrix run | Slot states from fixture runs; a hand-run experiment fills its matrix cell; duplicates and orphans; resume first; breadth and depth orders; author-keyed order stable per author; shards disjoint and covering; the budget stops before a slot that doesn't fit, and lowers the run cap; rerunning a complete matrix starts no run. |
+| Coverage and matrix run | Slot states from fixture runs; a hand-run experiment fills its matrix cell; extensions, forks, duplicates and orphans; resume first; breadth and depth orders; author-keyed order stable per author; shards disjoint and covering; the budget stops before a slot that doesn't fit, and lowers the run cap; rerunning a complete matrix starts no run. |
 | Compare | Field diff lists exactly the differing fields; Newcombe interval against hand-computed values. |
 | End to end | `simmons run experiments/smoke.json --fake` produces a complete run with at least one CATCH, HIT and MISS; summary matches a golden file. |
 
@@ -1483,22 +1529,17 @@ Mutation 15 (human seats, the public game) is dropped.
 
 ---
 
-## 23. Open questions
+## 23. Decisions
 
-Only Atin can answer these. Each says what hangs on the answer and what this spec assumes until then.
+The open questions from earlier drafts, with Atin's answers (2026-10-03). Nothing in this spec is waiting on him.
 
-1. **May R read blocked messages for measurement only (`shadow_decode`)?** It bends the fixed rule "R never sees a blocked message", though it cannot change any outcome. What hangs on it: with it, the decode gap is measured on every covert message and the hit rate is known at every threshold; without it, both are measured only on messages that passed, which flatters the guard's blind spots. It costs one extra receiver call per catch. Assumed: the field exists, off by default. Recommendation: allow it, and turn it on for guard comparisons.
+1. **R may read blocked messages for measurement.** `shadow_decode` is on by default. R has no memory, so a separate measurement call cannot affect the game.
+2. **S sees its log after every episode.** `wave_size` defaults to 1 and stays configurable.
+3. **One attempt log per experiment.** `log_scope: "experiment"` by default: one trajectory per slot, continued by every run.
+4. **No asks to the option-set conversation.** v1's presets stay plain lists; `cluster` selection waits for a set with clusters.
+5. **S and R are told their partner's model.** `tell_partner_model` defaults to on.
+6. **Matrices do not gate v1.** v1's done gate is the three-run ladder; matrices are milestone 8.
+7. **`matrix run --sync` is approved** as an opt-in flag.
+8. **A matrix has a hard spend ceiling in code:** `MATRIX_CEILING_USD = 100`, beside the $20 per run.
 
-2. **Is a 10-episode lag in the attempt log acceptable (`wave_size: 10`)?** What hangs on it: run time. A 200-episode run is roughly 5 minutes in waves of 10, and roughly 50 minutes strictly sequential (three calls of several seconds each, per episode). Sequential means S adapts after every single episode. Assumed: 10. Recommendation: keep 10 as the default; use `wave_size: 1` for experiments about in-run adaptation.
-
-3. **Does the attempt log reset every run, or carry across runs of the same experiment?** What hangs on it: per run keeps runs reproducible and poolable in the grid; carrying it lets S keep learning across sessions, but then run 2 is a different experiment from run 1 and pooling them mixes two things. Assumed: per run. Recommendation: per run; carrying the log can be a later field (`log_from_run`).
-
-4. **Option-set clusters.** Atin's notes already settle pools: a few sets of 300 to 500 options for `option_draw: "sample"`. Still open: `protected_selection: "cluster"` needs cluster labels, which only the object form (section 7.1) carries, and the option-set conversation is writing plain arrays. What hangs on it: whether the cluster knob does anything in v1. Recommendation: ask that conversation to use the object form for any set with natural categories. Until then the field validates and errors clearly on sets without clusters.
-
-5. **Should S and R be told their partner's model (`tell_partner_model`)?** What hangs on it: what the mirror test measures. On, it measures coordination with a known copy of yourself. Off, it measures blind coordination with an unknown partner. Assumed: off, to match "everything optional off" in the basic experiment. Recommendation: keep it off for the first mirror run, then run the mirror once with it on; the difference is itself a finding.
-
-6. **Should matrices gate v1, or follow it?** What hangs on it: whether "done" waits for the matrix layer. Gating makes the monitoring gap part of v1, which lands later. Not gating means v1 is the three-run ladder, with the dataset and pivots already in milestone 5, and matrices (milestone 8) land next, built beside milestone 7. Assumed: not gating. Recommendation: don't gate; milestone 8's own gate is the first replicate of the monitoring gap.
-
-7. **May `simmons matrix run --sync` commit and push run directories to `main` on its own?** What hangs on it: how fresh coverage is across four people. With it, others see a filled slot within one run's time and duplicate runs shrink to that window. Without it, coverage moves only when someone pushes by hand, and parallel agents duplicate more. The tool would touch only the new run directory and stop syncing on any git error. Assumed: built as an opt-in flag, off until you say yes. Recommendation: yes, opt-in.
-
-8. **Should a matrix have a spend ceiling in code, like the $20 per run?** What hangs on it: what an unattended agent can spend. Without one, a matrix with a large `budget_usd` can use the key's whole limit across many $20 runs. With one (say `MATRIX_CEILING_USD = 100`), a bigger matrix needs a code change a reviewer sees, or has to be split. Assumed: no code ceiling; `budget_usd` is required. Recommendation: $100 in code, plus the required `budget_usd`.
+Read with care: answers 1 and 5 came by voice and were read as "on by default". If either was meant as "allowed but off", it is one default to flip.
