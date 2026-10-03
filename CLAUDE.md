@@ -26,6 +26,7 @@ Design stage, no code yet. The build spec and build plan are being written to `d
 ## Working here
 
 - Several people work in this repo at once. Pull before you edit, and push design changes promptly, because teammates read them.
+- Each person has their own folder for notes at the repo root, named after them (`atin/`). Write-ups, selections and working notes go there; shared folders hold only what every experiment uses.
 - The two sides are the **sender side** (1S and 1R) and the **guard side** (2G). Nobody is attacking: one side sends information, the other guards against it.
 - The guard side is half the deliverable: a tool suite for detecting covert communication.
 - As the build lands, this file grows to cover how to run an experiment, run the tests, and read results.
