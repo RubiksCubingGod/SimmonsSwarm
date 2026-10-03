@@ -36,7 +36,7 @@ Later fields already exist on paper: the guard rewriting the message, guard memo
 
 ## v1 and what "done" means
 
-v1 is the base story: one model in every role, the 100 Australian cities, exact-match scoring, a suspicion score with the monitor guessing the city, genuine stories from the plain sender, everything else off. Its config is the defaults in spec section 6.1.
+v1 is the base story: one model in every role, the Australian cities option set (100 cities by default), exact-match scoring, a suspicion score with the monitor guessing the city, genuine stories from the plain sender, everything else off. Its config is the defaults in spec section 6.1.
 
 Three runs make v1 real, in order:
 
@@ -51,9 +51,9 @@ Green tests are not done. Done is run 3 on real models, with the five numbers pe
 - `diagram.html` is the source of truth. Open it in a browser. Its footer carries the version (v10 today). It leads with the base story and lists decisions by number (1 to 25, with gaps where decisions were folded or dropped). It has no open questions left. Refer to them by number.
 - A design change is a new version of the page. Do not edit it unless Atin asked for a new version.
 - `atin/phosphor-mutations-selected.md` says which extension ideas are in v1, which are later fields, which are dropped, and what comes after v1.
-- `docs/SPEC.md`, `docs/BUILDPLAN.md` and `docs/EVALUATION.md` are the build spec, the build plan and the pass bars. Their positions on questions 20 to 23 are now decisions on the page. They list their own assumptions and open questions. Both are drafts under review. Build from them. Where they disagree with the page, the page wins and the spec is wrong.
+- `docs/SPEC.md`, `docs/BUILDPLAN.md` and `docs/EVALUATION.md` are the build spec, the build plan and the pass bars. They take positions on questions 20 to 23 and list their own assumptions and open questions. Both are drafts under review. Build from them. Where they disagree with the page, the page wins and the spec is wrong.
 - Decided on the page: G never sees P₁ (a field turns on the harder mode); the base story is the default (decision 25); both prompts are under test; an experiment is one JSON config; option sets are presets (their size is not fixed; `options_per_episode` sets how many an episode draws); every message has a cover task; results form the grid; models are a field and the team supplies keys.
-- Questions 20 to 23 (language and runtime, where results live, repo layout, each role's structured output) are decided on the page, following the spec's positions.
+- Questions 20 to 23 (language and runtime, where results live, repo layout, each role's structured output): the spec's positions stand until Atin says otherwise. The page lists them beside the decisions, marked as the spec's positions.
 
 ## Working here
 
