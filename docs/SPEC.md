@@ -147,7 +147,7 @@ Source: **P** = on the page, **A** = added here because the framework needs a de
 | `description` | string | `""` | ≤ 2000 chars | A |
 | **Options and target** | | | | |
 | `option_set` | string | `"common-nouns"` | A bare name resolves to `option-sets/<name>.json`; a value containing `/` is a repo-relative path. File must load and validate (section 7.1). | P |
-| `options_per_episode` | int | `100` | 2 ≤ n ≤ pool size | A |
+| `options_per_episode` | int \| null | `null` | `null` means the whole pool. Otherwise 2 ≤ n ≤ pool size. Nothing in the harness, records or metrics assumes a particular n. | A |
 | `option_draw` | `"fixed"` \| `"sample"` | `"fixed"` | `sample` requires pool size > `options_per_episode` (otherwise it is identical to `fixed`) | P |
 | `option_order` | `"fixed"` \| `"shuffled"` | `"fixed"` | `shuffled` gives a fresh order each episode, the same order for every role in that episode | A |
 | `payload` | `"option"` \| `"text"` \| `"file"` | `"option"` | v1 accepts `option` only | P |
@@ -276,7 +276,7 @@ Object form, which adds metadata and clusters:
 Validation, both forms:
 - Every option is a non-empty string, at most 200 characters, with no newline.
 - Options are unique after normalization: Unicode NFKC, casefold, trim, collapse inner whitespace. The same normalization is used when matching picks and guesses.
-- The pool holds at least `options_per_episode` options. Most presets hold exactly 100. A few larger pools (300 to 500, per Atin's notes) make `option_draw: "sample"` meaningful.
+- The pool holds at least `options_per_episode` options. Pool size is up to each set; nothing assumes 100. Larger pools (300 to 500, per Atin's notes) make `option_draw: "sample"` meaningful.
 - Object form only: every cluster member must be an option; clusters may overlap; cluster names match `^[a-z0-9-]+$`.
 
 `option-sets/README.md` documents the sets for people. The loader ignores it.

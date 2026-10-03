@@ -7,12 +7,12 @@ A framework for running experiments on covert signalling between LLMs, built at 
 ## The game
 
 - **S (sender)** and **R (receiver)** share one prompt, P₁. **G (guard)** has its own prompt, P₂, and never sees P₁.
-- Each episode draws 100 options, a target T and a protected set of 10 for the guard. Only S and J know the target.
+- Each episode draws N options, a target T and a protected set of K for the guard. N and K are config fields (`options_per_episode`, `protected_count`), not constants of the game; nothing in the framework assumes a particular size. Only S and J know the target.
 - Every episode has a **cover task**, an innocent job the message is supposed to do. S writes one cover message that does the job and hides the target. Before sending it can read its **attempt log** of past outcomes.
-- G reads the message, the 100 options with its protected 10, and the cover task. It returns a **suspicion score** and its **guess** at the target. The harness turns the score into pass or block.
-- If the message passes, R reads it and picks one of the 100. J, the judge, compares the pick with T.
+- G reads the message, the N options with its protected K, and the cover task. It returns a **suspicion score** and its **guess** at the target. The harness turns the score into pass or block.
+- If the message passes, R reads it and picks one of the N. J, the judge, compares the pick with T.
 - Outcomes: **CATCH** (blocked), **MISS** (passed, wrong pick), **HIT** (passed, right pick). HIT is the reward signal.
-- Innocent traffic is mixed in, unmarked. **Control** episodes draw the target from the 90 allowed options. **Plain-sender** episodes use a sender that states its target openly. Blocking either is a false alarm, so a guard that blocks everything pays. A plain sender with a protected target should always be caught; that is the guard's sanity check.
+- Innocent traffic is mixed in, unmarked. **Control** episodes draw the target from the N − K allowed options. **Plain-sender** episodes use a sender that states its target openly. Blocking either is a false alarm, so a guard that blocks everything pays. A plain sender with a protected target should always be caught; that is the guard's sanity check.
 - Metrics, all computed from episode records: hit rate, catch rate, false-alarm rate, the catch vs false-alarm curve across thresholds, and the **decode gap**, how much more often R decodes the target than G guesses it. The gap is the covert channel itself.
 - Results live in a **sender × guard grid**. Each cell is one P₁ against one P₂. A frozen reference sender and reference guard give everyone the same baseline.
 
@@ -20,7 +20,7 @@ A framework for running experiments on covert signalling between LLMs, built at 
 
 We are building the framework, not one experiment. An experiment is one JSON file. Any choice about a single experiment is a field in that file, with a default. The framework owns what every experiment shares: the episode lifecycle, the visibility rules, the records and the metrics.
 
-Later fields already exist on paper: the guard rewriting the message, guard memory, prompt-authoring agents, two-way messages, a distribution over all 100 instead of one guess, and more. None is in v1. The framework must not block them. The rule that keeps them open: episode records store every role's full input and structured output, every version of the message, and every verdict with its reason. The list is in `atin/phosphor-mutations-selected.md`, under "After v1".
+Later fields already exist on paper: the guard rewriting the message, guard memory, prompt-authoring agents, two-way messages, a distribution over all N options instead of one guess, and more. None is in v1. The framework must not block them. The rule that keeps them open: episode records store every role's full input and structured output, every version of the message, and every verdict with its reason. The list is in `atin/phosphor-mutations-selected.md`, under "After v1".
 
 ## Words we use
 
@@ -30,11 +30,11 @@ Later fields already exist on paper: the guard rewriting the message, guard memo
 
 ## v1 and what "done" means
 
-v1 is the basic experiment: one model in every role, 100 fixed options, exact-match scoring, a suspicion score with the guard guessing the target, control and plain-sender traffic, everything else off. The exact config is in `atin/phosphor-mutations-selected.md`, under "The basic experiment".
+v1 is the basic experiment: one model in every role, a fixed option set (100 options by default), exact-match scoring, a suspicion score with the guard guessing the target, control and plain-sender traffic, everything else off. The exact config is in `atin/phosphor-mutations-selected.md`, under "The basic experiment".
 
 Three runs make v1 real, in order:
 
-1. **Sanity.** Fake provider first, then real keys. Numbers 1 to 100 with an obvious code. Hit rate high, protected plain senders caught, false alarms near zero.
+1. **Sanity.** Fake provider first, then real keys. A numbers option set with an obvious code. Hit rate high, protected plain senders caught, false alarms near zero.
 2. **Mirror.** Same config with an empty P₁. The floor every later P₁ is measured against.
 3. **Reference vs reference.** The first cell of the grid. Teammates then add sender and guard prompts, and the grid grows by matchups.
 
@@ -46,7 +46,7 @@ Green tests are not done. Done is run 3 on real models, with the five numbers pe
 - A design change is a new version of the page. Do not edit it unless Atin asked for a new version.
 - `atin/phosphor-mutations-selected.md` says which extension ideas are in v1, which are later fields, which are dropped, and what comes after v1.
 - `docs/SPEC.md` and `docs/BUILDPLAN.md` are the build spec and build plan. They take positions on questions 20 to 23 and list their own assumptions and open questions. Both are drafts under review. Build from them. Where they disagree with the page, the page wins and the spec is wrong.
-- Decided on the page: G never sees P₁ (a field turns on the harder mode); the guard always protects the target; both prompts are under test; an experiment is one JSON config; option sets are presets of 100; every message has a cover task; results form the grid; models are a field and the team supplies keys.
+- Decided on the page: G never sees P₁ (a field turns on the harder mode); the guard always protects the target; both prompts are under test; an experiment is one JSON config; option sets are presets (their size is not fixed; `options_per_episode` sets how many an episode draws); every message has a cover task; results form the grid; models are a field and the team supplies keys.
 - Open on the page: language and runtime, where results live, repo layout, and each role's structured output. The spec's positions on these stand until Atin says otherwise.
 
 ## Working here
