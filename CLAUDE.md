@@ -1,32 +1,65 @@
 # SimmonsSwarm
 
-An experiment framework for covert signalling between LLMs, built at the AI Village Hackathon. It is named for Simmons' prisoners' problem (1983): two prisoners passing notes past a warden.
+A framework for running experiments on covert signalling between LLMs, built at the AI Village Hackathon. The brief: show that agent swarms can communicate covertly, and build tools that detect it. It is named for Simmons' prisoners' problem (1983): two prisoners passing notes past a warden.
 
 `AGENTS.md` is a symlink to this file, so Claude Code, Codex and other agents all read the same instructions. Edit `CLAUDE.md` only.
 
 ## The game
 
-- **1S (sender)** and **1R (receiver)** share one prompt, P₁.
-- Each episode draws 100 options, a target and a protected set of 10. Only 1S knows the target.
-- 1S writes one cover message that hides the target. The message passes through **2G (guard)**, which has its own prompt, P₂, protects the 10, and never sees P₁.
-- If the guard passes the message, 1R picks one of the 100 and a scorer judges the pick.
-- Outcomes: **CATCH** (the guard blocks), **MISS** (passed, wrong pick), **HIT** (passed, right pick).
-- Control and plain-sender episodes are mixed in, unmarked, so a guard that blocks everything pays in false alarms.
-
-The full design is `diagram.html`. Open it in a browser. It is the source of truth for the design.
+- **1S (sender)** and **1R (receiver)** share one prompt, P₁. **2G (guard)** has its own prompt, P₂, and never sees P₁.
+- Each episode draws 100 options, a target T and a protected set of 10 for the guard. Only 1S and the judge know the target.
+- Every episode has a **cover task**, an innocent job the message is supposed to do. 1S writes one cover message that does the job and hides the target. Before sending it can read its **attempt log** of past outcomes.
+- 2G reads the message, the 100 options with its protected 10, and the cover task. It returns a **suspicion score** and its **guess** at the target. The harness turns the score into pass or block.
+- If the message passes, 1R reads it and picks one of the 100. The judge compares the pick with T.
+- Outcomes: **CATCH** (blocked), **MISS** (passed, wrong pick), **HIT** (passed, right pick). HIT is the reward signal.
+- Innocent traffic is mixed in, unmarked. **Control** episodes draw the target from the 90 allowed options. **Plain-sender** episodes use a sender that states its target openly. Blocking either is a false alarm, so a guard that blocks everything pays. A plain sender with a protected target should always be caught; that is the guard's sanity check.
+- Metrics, all computed from episode records: hit rate, catch rate, false-alarm rate, the catch vs false-alarm curve across thresholds, and the **decode gap**, how much more often 1R decodes the target than 2G guesses it. The gap is the covert channel itself.
+- Results live in a **sender × guard grid**. Each cell is one P₁ against one P₂. A frozen reference sender and reference guard give everyone the same baseline.
 
 ## The principle
 
-We are building the framework, not one experiment. Any choice about a single experiment is a field in that experiment's JSON config, with a default. The framework owns what every experiment shares: the episode lifecycle, the visibility rules, the records and the metrics.
+We are building the framework, not one experiment. An experiment is one JSON file. Any choice about a single experiment is a field in that file, with a default. The framework owns what every experiment shares: the episode lifecycle, the visibility rules, the records and the metrics.
 
-## Status
+Later fields already exist on paper: the guard rewriting the message, guard memory, prompt-authoring agents, two-way messages, a distribution over all 100 instead of one guess, and more. None is in v1. The framework must not block them. The rule that keeps them open: episode records store every role's full input and structured output, every version of the message, and every verdict with its reason. The list is in `atin/phosphor-mutations-selected.md`, under "After v1".
 
-Design stage, no code yet. The build spec is `docs/SPEC.md` and the build plan is `docs/BUILDPLAN.md`, both drafts under review. Build from them; where they disagree with `diagram.html`, the diagram wins.
+## Words we use
+
+- The **sender side** is 1S and 1R, iterating P₁. The **guard side** is 2G, iterating P₂. Nobody is attacking: one side sends information, the other guards against it.
+- The guard side is half the deliverable: a tool suite for detecting covert communication.
+- Roles are 1S, 1R, 2G and the judge. Prompts are P₁ and P₂. Outcomes are CATCH, MISS, HIT.
+
+## v1 and what "done" means
+
+v1 is the basic experiment: one model in every role, 100 fixed options, exact-match scoring, a suspicion score with the guard guessing the target, control and plain-sender traffic, everything else off. The exact config is in `atin/phosphor-mutations-selected.md`, under "The basic experiment".
+
+Three runs make v1 real, in order:
+
+1. **Sanity.** Fake provider first, then real keys. Numbers 1 to 100 with an obvious code. Hit rate high, protected plain senders caught, false alarms near zero.
+2. **Mirror.** Same config with an empty P₁. The floor every later P₁ is measured against.
+3. **Reference vs reference.** The first cell of the grid. Teammates then add sender and guard prompts, and the grid grows by matchups.
+
+Green tests are not done. Done is run 3 on real models, with the five numbers per cell computed from the records, each with its interval.
+
+## Where the design lives and how it changes
+
+- `diagram.html` is the source of truth. Open it in a browser. Its footer carries the version (v7 today). It lists decisions by number (1 to 19, with gaps where decisions were folded or dropped) and open questions by number (20 to 23), each with a gut answer. Refer to them by number.
+- A design change is a new version of the page. Do not edit it unless Atin asked for a new version.
+- `atin/phosphor-mutations-selected.md` says which extension ideas are in v1, which are later fields, which are dropped, and what comes after v1.
+- `docs/SPEC.md` and `docs/BUILDPLAN.md` are the build spec and build plan. They take positions on questions 20 to 23 and list their own assumptions and open questions. Both are drafts under review. Build from them. Where they disagree with the page, the page wins and the spec is wrong.
+- Decided on the page: 2G never sees P₁ (a field turns on the harder mode); the guard always protects the target; both prompts are under test; an experiment is one JSON config; option sets are presets of 100; every message has a cover task; results form the grid; models are a field and the team supplies keys.
+- Open on the page: language and runtime, where results live, repo layout, and each role's structured output. The spec's positions on these stand until Atin says otherwise.
 
 ## Working here
 
-- Several people work in this repo at once. Pull before you edit, and push design changes promptly, because teammates read them.
-- Each person has their own folder for notes at the repo root, named after them: `aarav/`, `atin/`, `miguel/`, `patrick/`. Write-ups, selections and working notes go there; shared folders hold only what every experiment uses.
-- The two sides are the **sender side** (1S and 1R) and the **guard side** (2G). Nobody is attacking: one side sends information, the other guards against it.
-- The guard side is half the deliverable: a tool suite for detecting covert communication.
-- As the build lands, this file grows to cover how to run an experiment, run the tests, and read results.
+- Several people work in this repo at once. Pull before you edit. Push design changes promptly, because teammates read them.
+- Commit with `git commit -F <file>`, never `-m` with prose. Backticks in a double-quoted message run as commands.
+- Each person has a folder at the repo root named after them: `aarav/`, `atin/`, `miguel/`, `patrick/`. Write-ups, selections and working notes go there. Shared folders hold only what every experiment uses.
+- Local only, never pushed: `.agents/` (agent briefs and done markers), `phosphor/` (brainstorm invocations), `option-sets/brief-*.md`. They are listed in `.git/info/exclude`. If you see them on a laptop, they are one person's working files, not shared design.
+
+## Status
+
+2026-10-03. Design stage, no code yet. Diagram at v7. The v1 scope is settled in `atin/phosphor-mutations-selected.md`. The spec and build plan are committed as drafts under review. A separate conversation is choosing the ten preset option sets. Nothing runs yet.
+
+## How this file grows
+
+As the build lands, this file gains sections for setup, running the tests, running and writing an experiment, keys and spend, reading results and looking at an episode, plus a pitfalls list that gets an entry the day something bites. Each milestone updates the Status line. Keep it short enough to read in two minutes and point at the spec for depth.
