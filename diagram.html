@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EnigmaChallenge</title>
+<title>SimmonsSwarm</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -214,6 +214,7 @@
     display: grid; place-items: center;
     font: 700 14px var(--mono); color: var(--lamp); border: 1.5px solid var(--lamp);
   }
+  .lede-2 { margin: 6px 0 0; color: var(--muted); font-size: 14.5px; max-width: 680px; }
   .meta { margin: 10px 0 0; font: 500 13px var(--mono); color: var(--muted); letter-spacing: 0.02em; }
   .grid-lede { margin: 22px 0 12px; color: var(--ink-2); font-size: 15px; max-width: 760px; }
   table.grid { min-width: 560px; }
@@ -291,14 +292,15 @@
 
 <header>
   <div>
-    <h1>EnigmaChallenge</h1>
+    <h1>SimmonsSwarm</h1>
     <p class="lede">A framework for running experiments on covert signalling between LLMs. In every episode, a sender
     has to get one choice out of a hundred to a receiver through a guard who is watching for ten of them.</p>
-    <p class="meta">AI Village Hackathon · github.com/RubiksCubingGod/Enigma-Challenge · built for many people running many experiments</p>
+    <p class="lede-2">Named for Simmons' prisoners' problem (1983): two prisoners passing notes past a warden.</p>
+    <p class="meta">AI Village Hackathon · github.com/RubiksCubingGod/SimmonsSwarm · built for many people running many experiments</p>
   </div>
   <div class="lamps" aria-hidden="true">
-    <div class="lamp">E</div><div class="lamp">N</div><div class="lamp lit">I</div>
-    <div class="lamp">G</div><div class="lamp">M</div><div class="lamp">A</div>
+    <div class="lamp">S</div><div class="lamp">W</div><div class="lamp lit">A</div>
+    <div class="lamp">R</div><div class="lamp">M</div>
   </div>
 </header>
 
@@ -314,7 +316,7 @@ is a field in that experiment's JSON config, with a default. This page describes
 
 <figure class="diagram">
 <svg viewBox="0 0 1200 630" role="img" aria-labelledby="dg-title dg-desc">
-  <title id="dg-title">EnigmaChallenge episode flow</title>
+  <title id="dg-title">SimmonsSwarm episode flow</title>
   <desc id="dg-desc">Shared prompt P1 goes to sender 1S and receiver 1R. 1S sends a message through guard 2G, which has its own prompt P2. 2G blocks (a catch) or passes the message to 1R. 1R picks one of 100 options and the judge compares it with the target: a hit if correct, a miss if not. Every outcome is appended to 1S's attempt log.</desc>
   <defs>
     <marker id="ah-team" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-team"/></marker>
@@ -709,7 +711,7 @@ is a field in that experiment's JSON config, with a default. This page describes
   </ol>
 </section>
 
-<footer>EnigmaChallenge · episode diagram v6 · 2026-10-03</footer>
+<footer>SimmonsSwarm · episode diagram v7 · 2026-10-03</footer>
 
 </div>
 </body>
