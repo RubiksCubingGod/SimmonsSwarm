@@ -1324,7 +1324,7 @@ Rules for adapters:
 - Return `reasoning_details` exactly as received, so the harness can replay them.
 - Register with `@register_provider("name")`. A new provider is one new file.
 
-v1 adapters: `fake` and `openrouter`. The OpenRouter adapter uses the `openai` client pointed at `https://openrouter.ai/api/v1`, with Chat Completions, `tools`, a forced `tool_choice`, `parallel_tool_calls: false`, `transforms: []`, and `provider: {"require_parameters": true, "max_price": {...}}`, so OpenRouter only routes to hosts that honor tool calls and never to one priced above what the breaker reserved (section 19.1). The allowed `params` (section 6.2.1) merge into the body; harness-owned keys always win. It records the OpenRouter generation id, `usage.cost` as the call's exact cost, cached and reasoning token counts from `usage`, and the serving host when the response names it. It sends an `X-Title: SimmonsSwarm` header. Later: direct `anthropic` or `openai` adapters, only if OpenRouter cannot pass something through.
+v1 adapters: `fake` and `openrouter`. The OpenRouter adapter uses the `openai` client pointed at `https://openrouter.ai/api/v1`, with Chat Completions, `tools`, `tool_choice` in the mode section 11 decides, `transforms: []`, and `provider: {"require_parameters": true, "max_price": {...}}`, so OpenRouter only routes to hosts that honor tool calls and never to one priced above what the breaker reserved (section 19.1). The allowed `params` (section 6.2.1) merge into the body; harness-owned keys always win. It records the OpenRouter generation id, `usage.cost` as the call's exact cost, cached and reasoning token counts from `usage`, and the serving host when the response names it. It sends an `X-Title: SimmonsSwarm` header. **It sends no parameter that a model's endpoints do not all list in `supported_parameters`**, because `require_parameters` would then leave no host to route to and every call would fail. Checked against OpenRouter's catalog on 2026-10-03: no endpoint serving `anthropic/claude-sonnet-5.5` or `anthropic/claude-opus-5.5` supports `parallel_tool_calls`, `top_p` or `seed`, so the body never sets `parallel_tool_calls` (the harness already keeps the first valid tool call, section 10.3), and validation rejects a `params` key the model's endpoints do not support. Later: direct `anthropic` or `openai` adapters, only if OpenRouter cannot pass something through.
 
 ### 15.2 The fake provider
 
@@ -1390,6 +1390,7 @@ class ModelInfo:
     context_length: int
     supports_tools: bool
     endpoint_prices: tuple[tuple[str, float, float], ...]   # (host, $/M input, $/M output)
+    supported_parameters: frozenset[str] = frozenset()       # parameters every serving endpoint accepts
 
 class Catalog(Protocol):
     def lookup(self, slug: str) -> ModelInfo | None: ...
