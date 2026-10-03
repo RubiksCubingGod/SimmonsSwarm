@@ -116,10 +116,11 @@ SimmonsSwarm/
 ├── simmons/
 │   ├── types.py              # the frozen interfaces of section 15
 │   ├── model-aliases.json    # short names to OpenRouter slugs
-│   ├── cli.py                # thin dispatcher only
+│   ├── cli.py                # thin dispatcher; discovers commands/*.py
 │   ├── commands/             # one file per CLI command: run.py, resume.py, validate.py, plan.py, ...
 │   ├── config.py             # pydantic schema, defaults, cross-field validation, hashes
 │   ├── inputs.py             # load + validate + snapshot option sets, prompts, cover tasks, templates
+│   ├── text.py               # option normalization (section 7.1), shared by inputs, roles and scorers
 │   ├── plan.py               # seeded draws -> episode plan
 │   ├── visibility.py         # the visibility table and the view builders
 │   ├── render.py             # strict template rendering from views
@@ -135,7 +136,9 @@ SimmonsSwarm/
 │   ├── coverage.py           # slot states, spend, next slots
 │   ├── viewer/               # static HTML builder and its template
 │   ├── events.py             # structured event log
-│   ├── spend.py              # prices, estimates, reservations, the spend caps (section 19)
+│   ├── spend.py              # estimates, reservations, the spend caps (section 19)
+│   ├── catalog.py            # the OpenRouter model and endpoint list: cache, refresh, lookups (section 6.2)
+│   ├── env.py                # .env loading
 │   ├── payloads/             # option.py in v1
 │   ├── scorers/              # exact_match.py in v1
 │   └── providers/            # base.py, fake.py, openrouter.py
@@ -162,7 +165,7 @@ SimmonsSwarm/
 - Never edit or delete another person's run directory or personal folder.
 - Personal notes go in your own folder at the repo root. Shared folders hold only what experiments use.
 - Names are unique by path. Claim a name by pushing it. A clash shows up as a git add/add conflict, which is loud.
-- Shared code files belong to one build track at a time (BUILDPLAN.md). The CLI is one file per command so adding a command never touches another person's file.
+- Shared code files belong to one build track at a time (BUILDPLAN.md). The CLI is one file per command, discovered from `commands/`, so adding a command never touches a shared file.
 - Pull with rebase before pushing. Never force-push.
 - Matrix files follow the content rule with one exception: appending to `seeds`, appending axis values and appending to `exclude` or `first` are allowed edits, because they never change an existing cell's `config_hash`. Any other edit changes cells, and `simmons validate` lists the committed runs that no longer match a cell.
 

@@ -40,17 +40,17 @@ Each non-negotiable rule has its own criterion, so none is merely assumed.
 |---|---|---|---|---|
 | E-01 | The package installs and the CLI runs. | `uv sync && uv run simmons --version` prints `0.1.0`. | autonomous | T01 |
 | E-02 | The default suite is hermetic and fast. | `uv run pytest -q` is green in under 10 s with every provider key unset; a test that opens a socket fails. | autonomous | T01, every ticket |
-| E-03 | A complete experiment runs end to end on the fake provider. | M1 Verify: 20 episodes; every run file present; kinds 14 covert and 6 plain_allowed (the base story); CATCH, HIT and MISS each at least once. | autonomous | T02 |
-| E-04 | Fake runs are deterministic. | The golden `plan.jsonl` for `smoke.json` matches; two fake runs of one config have identical episode content apart from timestamps and run ids. | autonomous | T02 |
-| E-05 | Fake and scratch runs never land in `runs/`. | `git status --short runs/` is empty after any number of fake runs. | autonomous | T02 |
-| E-06 | The run breaker holds, and its ceiling is fixed in code. | A priced fake run at `--concurrency 8` with a $0.05 cap stops below $0.05; `max_cost_usd: 25` fails validation; `--max-cost` above the config is refused; the constant is `RUN_CEILING_USD = 20.0`. | autonomous | T02, T08 |
+| E-03 | A complete experiment runs end to end on the fake provider. | M1 Verify: 20 episodes; every run file present; kinds 14 covert and 6 plain_allowed (the base story); CATCH, HIT and MISS each at least once. | autonomous | T02f |
+| E-04 | Fake runs are deterministic. | The golden `plan.jsonl` for `smoke.json` matches; two fake runs of one config have identical episode content apart from timestamps and run ids. | autonomous | T02b, T02d, T02f |
+| E-05 | Fake and scratch runs never land in `runs/`. | `git status --short runs/` is empty after any number of fake runs. | autonomous | T02f |
+| E-06 | The run breaker holds, and its ceiling is fixed in code. | A priced fake run with a $0.05 cap stops below $0.05 (at `--concurrency 8` once T10 lands); `max_cost_usd: 25` fails validation; `--max-cost` above the config is refused; the constant is `RUN_CEILING_USD = 20.0`. | autonomous | T02e, T02f, T08, T10 |
 
 ### Config, draws, visibility (M2)
 
 | ID | Criterion | How it is verified | Tag | Proven by |
 |---|---|---|---|---|
 | E-07 | Every validation rule in §6 rejects bad input clearly. | Each file in `tests/fixtures/bad/` exits 2 and names its JSON path. | autonomous | T03 |
-| E-08 | Identities are right. | Hash tests: stable across machines; sensitive to exactly the fields of §6.3; `config_hash` equals the union of the three ids; recorded overrides never flag an edit. | autonomous | T03 |
+| E-08 | Identities are right. | Hash tests: stable across machines; sensitive to exactly the fields of §6.3; `config_hash` equals the union of the three ids; recorded overrides never flag an edit. | autonomous | T02a, T03 |
 | E-09 | Every draw mode and trajectory index works. | Plan tests per mode; exact kind counts; the plan unchanged by prompts or models; a continued run starts at the right global index. | autonomous | T04, T12 |
 | E-10 | Visibility is proven, not assumed. | Noninterference and canary tests over all 32 knob combinations, on full outbound bodies; the table pinned to the page's. | autonomous | T05 |
 | E-11 | Role contracts hold. | Tool-schema tests per config; normalization; format resampling; the plain contract rejects a plain message that does not name its target. | autonomous | T05 |
@@ -72,7 +72,7 @@ Each non-negotiable rule has its own criterion, so none is merely assumed.
 | E-17 | Concurrency never changes results. | A wave-batched fake run at `--concurrency 1` and `8` has identical content; wave log snapshots tested. | autonomous | T10 |
 | E-18 | Runs survive crashes and races. | A crash injected between every pair of writes recovers; a second process is refused by the lock; a resumed run equals an uninterrupted one; `--retry-errors` refuses an earlier-wave repair. | autonomous | T11 |
 | E-19 | One log per experiment works. | A second run of a slot continues its log and indices; a local run never feeds a committed trajectory; a fork is flagged. | autonomous | T12 |
-| E-20 | Every run can be checked from its files. | `simmons verify` passes on fixture and smoke runs, and fails on a corrupted copy for each invariant it checks. | autonomous | T02, T12 |
+| E-20 | Every run can be checked from its files. | `simmons verify` passes on fixture and smoke runs, and fails on a corrupted copy for each invariant it checks. | autonomous | T02f, T12b |
 
 ### Results (M5, M6)
 
@@ -82,8 +82,8 @@ Each non-negotiable rule has its own criterion, so none is merely assumed.
 | E-22 | The dataset is complete. | Golden CSV header; one row per run, or per episode at episode level. | autonomous | T14 |
 | E-23 | Pivots compare only like with like. | `grid` equals `pivot --rows sender --cols guard --split arena`; a mixed bucket exits 2 and names the field; the golden grid matches; fake runs are excluded by default. | autonomous | T15 |
 | E-24 | Any role's exact request can be shown. | `simmons show --prompt` prints the request with a hash match; a guard request contains no target designation. | autonomous | T16 |
-| E-25 | The viewer is safe and self-contained. | Pages build from fixtures; hostile strings render as text and run nothing; no external URL. | autonomous | T17 |
-| E-26 | The viewer is usable. | A person drives the run page, an episode's "as seen by" tabs and the grid page, and a reviewing agent repeats it in a browser with screenshots in the PR. | felt (H6) | T17 |
+| E-25 | The viewer is safe and self-contained. | Pages build from fixtures; hostile strings render as text and run nothing; no external URL. | autonomous | T17, T17b |
+| E-26 | The viewer is usable. | A person drives the run page, an episode's "as seen by" tabs and the grid page, and a reviewing agent repeats it in a browser with screenshots in the PR. | felt (H6) | T17, T17b |
 
 ### The done gate (M7)
 
