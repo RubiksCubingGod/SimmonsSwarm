@@ -90,6 +90,9 @@ class AttemptRecord(TypedDict, total=False):
     target: str
     message: str
     outcome: Literal["CATCH", "MISS", "HIT"]
+    receiver_pick: str | None
+    guard_suspicion: float | None
+    guard_guess: str | None
 
 
 class SummaryRecord(TypedDict, total=False):
@@ -132,7 +135,7 @@ class SpendRecord(TypedDict, total=False):
     event: Literal["reserve", "settle", "unresolved"]
     usd: float
     request_sha256: str
-    generation_id: NotRequired[str]
+    generation_id: NotRequired[str | None]
     reason: NotRequired[str]
     ts: str
 
@@ -352,12 +355,15 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     ),
     "attempt": _object_schema(
         "simmons.attempt/1",
-        ("episode", "target", "message", "outcome"),
+        ("episode",),
         {
             "episode": {"type": "integer", "minimum": 0},
             "target": _STRING,
             "message": _STRING,
             "outcome": {"enum": ["CATCH", "MISS", "HIT"]},
+            "receiver_pick": {"type": ["string", "null"]},
+            "guard_suspicion": {"type": ["number", "null"]},
+            "guard_guess": {"type": ["string", "null"]},
         },
     ),
     "summary": _object_schema(
@@ -392,7 +398,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                 "event": {"enum": ["reserve", "settle", "unresolved"]},
                 "usd": {"type": "number", "minimum": 0},
                 "request_sha256": _STRING,
-                "generation_id": _STRING,
+                "generation_id": {"type": ["string", "null"]},
                 "reason": _STRING,
                 "ts": _STRING,
             },

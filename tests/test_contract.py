@@ -345,10 +345,6 @@ def test_record_schemas_reject_invalid_shapes_and_declare_summary_fields(tmp_pat
     invalid_episode["calls"] = {"sender_debrief": None}
 
     bad_records = (
-        {
-            "schema": "simmons.run/1", "run_id": "r", "experiment": "x", "status": "complete",
-            "matrix": None, "spent_usd": "not money", "ids": [],
-        },
         invalid_episode,
         {"schema": "simmons.attempt/1", "episode": 0, "target": "Townsville", "message": {}, "outcome": "not an outcome"},
         {
@@ -375,6 +371,59 @@ def test_record_schemas_reject_invalid_shapes_and_declare_summary_fields(tmp_pat
     with lzma.open(request_path, "wt", encoding="utf-8") as stream:
         stream.write(canonical_json(_valid_request_record()) + "\n")
     assert read_requests_xz(request_path) == [_valid_request_record()]
+
+
+def test_attempt_log_schema_accepts_any_log_record_subset():
+    attempt_schema = SCHEMAS["attempt"]
+    assert attempt_schema["required"] == ["schema", "episode"]
+    assert {"receiver_pick", "guard_suspicion", "guard_guess"} <= set(AttemptRecord.__annotations__)
+    validate_record({
+        "schema": "simmons.attempt/1", "episode": 0, "message": "JAKARTA news story", "outcome": "HIT",
+    })
+    validate_record({
+        "schema": "simmons.attempt/1", "episode": 1, "target": "Sydney", "outcome": "MISS",
+        "guard_guess": "Canberra",
+    })
+
+
+def test_run_spent_usd_schema_rejects_non_numeric_value():
+    with pytest.raises(ValidationError):
+        validate_record({
+            "schema": "simmons.run/1", "run_id": "r", "experiment": "x", "status": "complete",
+            "matrix": None, "spent_usd": "not money", "ids": {},
+        })
+
+
+def test_run_ids_schema_rejects_non_string_values():
+    with pytest.raises(ValidationError):
+        validate_record({
+            "schema": "simmons.run/1", "run_id": "r", "experiment": "x", "status": "complete",
+            "matrix": None, "spent_usd": 1.0, "ids": {"sender": 7},
+        })
+
+
+def test_settle_requires_generation_id_but_allows_null():
+    with pytest.raises(ValidationError):
+        validate_record({
+            "schema": "simmons.spend/1", "attempt_id": "a", "event": "settle", "usd": 0.1, "ts": "now",
+        })
+    validate_record({
+        "schema": "simmons.spend/1", "attempt_id": "a", "event": "settle", "usd": 0.1,
+        "generation_id": None, "ts": "now",
+    })
+
+
+def test_plain_target_section_is_scoped_to_plain_sender():
+    types = importlib.import_module("simmons.types")
+    assert "plain_target_section" in types.PlainSenderView.__dataclass_fields__
+    other_views = (
+        types.SenderView,
+        types.GuardView,
+        types.ReceiverView,
+        types.JudgeView,
+        types.SenderDebriefView,
+    )
+    assert all("plain_target_section" not in view.__dataclass_fields__ for view in other_views)
 
 
 def test_request_hash_covers_prior_but_excludes_request_id_and_attempt():
