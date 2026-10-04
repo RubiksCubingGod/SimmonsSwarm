@@ -41,6 +41,21 @@ def verify_run(run_dir: str | Path) -> list[str]:
         if count != 1:
             errors.append(f"episodes.jsonl: index {index} has {count} records")
     planned = run_record.get("episodes_planned")
+    done = run_record.get("episodes_done")
+    status = run_record.get("status")
+    if status in {"complete", "interrupted", "stopped_budget", "failed"}:
+        if type(planned) is int and type(done) is int and planned >= 0 and done >= 0:
+            expected_count = planned if status == "complete" else done
+            if status == "complete" and done != planned:
+                errors.append(f"run.json: complete run has {done} episodes_done; expected {planned}")
+            if len(episodes) != expected_count:
+                errors.append(f"episodes.jsonl: has {len(episodes)} records; expected {expected_count} for {status} run")
+            for index in range(expected_count):
+                if index not in by_index:
+                    errors.append(f"episodes.jsonl: missing expected episode index {index}")
+            for index in by_index:
+                if index >= expected_count:
+                    errors.append(f"episodes.jsonl: index {index} is beyond the {status} run's completed prefix 0..{expected_count - 1}")
     if isinstance(planned, int):
         for index in by_index:
             if index < 0 or index >= planned:
@@ -61,9 +76,13 @@ def verify_run(run_dir: str | Path) -> list[str]:
             continue
         for name, call in calls.items():
             if not isinstance(call, dict):
+                if call is not None:
+                    errors.append(f"episode {record.get('index')} {name}: call is not an object")
                 continue
             digest = call.get("request_sha256")
-            if digest and digest not in request_hashes:
+            if not isinstance(digest, str) or not digest:
+                errors.append(f"episode {record.get('index')} {name}: request hash is absent or empty")
+            elif digest not in request_hashes:
                 errors.append(f"episode {record.get('index')} {name}: request hash is absent from requests.jsonl.xz")
         guard = record.get("guard")
         if isinstance(guard, dict) and guard.get("blocked") is True:
@@ -76,7 +95,9 @@ def verify_run(run_dir: str | Path) -> list[str]:
         calls_log = read_jsonl(root / "calls.jsonl")
         for call in calls_log:
             digest = call.get("request_sha256")
-            if digest and digest not in request_hashes:
+            if not isinstance(digest, str) or not digest:
+                errors.append("calls.jsonl: request hash is absent or empty")
+            elif digest not in request_hashes:
                 errors.append("calls.jsonl: request hash is absent from requests.jsonl.xz")
     except Exception as exc:
         errors.append(f"calls.jsonl: {exc}")

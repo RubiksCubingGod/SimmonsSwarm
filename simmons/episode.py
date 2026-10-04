@@ -205,26 +205,36 @@ def _call_role(
     while counted_attempts < _ATTEMPT_LIMIT:
         provider_attempt = counted_attempts + 1
         current = replace(request, attempt=provider_attempt)
+        reservation = None
+        reservation_open = False
+        submission_started = False
         try:
             body = provider.build_body(current)
             digest = request_sha256(current)
             attempt_id = f"{ctx.run_id}:{attempt_prefix or state.episode}:{role}:a{provider_attempt}:n{network_pauses}"
             reservation = ctx.breaker.reserve(attempt_id, body, spec) if ctx.breaker else None
+            reservation_open = reservation is not None
             try:
                 _append_request(ctx, current, digest)
                 _emit(ctx, "call_start", episode=state.episode, role=role, attempt=provider_attempt, request_sha256=digest)
             except Exception:
                 if reservation is not None:
                     ctx.breaker.settle(reservation, _zero_response(current))
+                    reservation_open = False
                 raise
             started = time.monotonic()
             response: RoleResponse | None = None
             try:
+                submission_started = True
                 response = provider.complete(current)
             except TransientError as exc:
                 elapsed_ms = int((time.monotonic() - started) * 1000)
                 if reservation is not None:
-                    ctx.breaker.settle(reservation, _zero_response(current))
+                    if exc.network_down:
+                        ctx.breaker.settle(reservation, _zero_response(current))
+                    else:
+                        ctx.breaker.unresolved(reservation, f"transient provider result is unknown: {_safe_exception(exc)}")
+                    reservation_open = False
                 _append_call(ctx, digest, {"error": _safe_exception(exc), "kind": "network_down" if exc.network_down else "transient"}, elapsed_ms)
                 if exc.network_down:
                     now = time.monotonic()
@@ -249,18 +259,21 @@ def _call_role(
                 elapsed_ms = int((time.monotonic() - started) * 1000)
                 if reservation is not None:
                     ctx.breaker.settle(reservation, _zero_response(current))
+                    reservation_open = False
                 _append_call(ctx, digest, {"error": _safe_exception(exc), "kind": "permanent"}, elapsed_ms)
                 raise CallFailure(role, "provider", _safe_exception(exc), attempts=counted_attempts + 1, permanent=True) from exc
             except BudgetError as exc:
                 elapsed_ms = int((time.monotonic() - started) * 1000)
                 if reservation is not None:
                     ctx.breaker.settle(reservation, _zero_response(current))
+                    reservation_open = False
                 _append_call(ctx, digest, {"error": _safe_exception(exc), "kind": "budget"}, elapsed_ms)
                 raise CallFailure(role, "provider", _safe_exception(exc), attempts=counted_attempts + 1) from exc
             except Exception as exc:
                 elapsed_ms = int((time.monotonic() - started) * 1000)
                 if reservation is not None:
                     ctx.breaker.unresolved(reservation, f"provider call raised {type(exc).__name__}")
+                    reservation_open = False
                 _append_call(ctx, digest, {"error": _safe_exception(exc), "kind": "provider"}, elapsed_ms)
                 raise CallFailure(role, "provider", _safe_exception(exc), attempts=counted_attempts + 1) from exc
 
@@ -268,6 +281,7 @@ def _call_role(
             elapsed_ms = int((time.monotonic() - started) * 1000)
             if reservation is not None:
                 ctx.breaker.settle(reservation, response)
+                reservation_open = False
             _append_call(ctx, digest, _response_json(response), elapsed_ms)
             _emit(ctx, "call_end", episode=state.episode, role=role, attempt=provider_attempt, request_sha256=digest, latency_ms=response.latency_ms)
             counted_attempts += 1
@@ -300,6 +314,13 @@ def _call_role(
         except Exception as exc:
             if isinstance(exc, (ValueError, TypeError, KeyError)):
                 raise CallFailure(role, "format", _safe_exception(exc), attempts=counted_attempts) from exc
+            raise
+        except BaseException:
+            if reservation_open and reservation is not None and ctx.breaker is not None:
+                if submission_started:
+                    ctx.breaker.unresolved(reservation, "interrupted after provider submission; result is unknown")
+                else:
+                    ctx.breaker.settle(reservation, _zero_response(current))
             raise
     raise CallFailure(role, "format", "role call exhausted its six-attempt budget", attempts=counted_attempts)
 

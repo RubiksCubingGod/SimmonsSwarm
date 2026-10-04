@@ -10,16 +10,17 @@ from pathlib import Path
 import pytest
 
 from simmons.config import Config, resolve_models
-from simmons.episode import run_episode
+from simmons.episode import _call_role, run_episode
 from simmons.inputs import load
 from simmons.plan import build_plan
 from simmons.payloads.option import OptionPayload
 from simmons.providers.fake import FakeProvider
 from simmons.records import canonical_json, read_jsonl, read_requests_xz
 from simmons.runner import run as run_config
-from simmons.runner import run_experiment
+from simmons.runner import _make_state, run_experiment
 from simmons.scorers.exact_match import ExactMatchScorer
-from simmons.types import EpisodeContext, PermanentError
+from simmons.spend import Breaker
+from simmons.types import BreakerTripped, EpisodeContext, PermanentError, TransientError
 from simmons.commands.verify import verify_run
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -126,6 +127,31 @@ def test_smoke_matches_golden_and_fake_runs_are_deterministic(tmp_path: Path):
     _write_jsonl(blocked_receiver / "episodes.jsonl", episode_rows)
     assert any("blocked episode has an ordinary receiver call" in error for error in verify_run(blocked_receiver))
 
+    missing_episode = tmp_path / "missing-episode"
+    shutil.copytree(first, missing_episode)
+    episode_rows = read_jsonl(missing_episode / "episodes.jsonl")
+    missing_index = 7
+    _write_jsonl(
+        missing_episode / "episodes.jsonl",
+        [row for row in episode_rows if row["index"] != missing_index],
+    )
+    assert any(f"missing expected episode index {missing_index}" in error for error in verify_run(missing_episode))
+
+    missing_nested_hash = tmp_path / "missing-nested-hash"
+    shutil.copytree(first, missing_nested_hash)
+    episode_rows = read_jsonl(missing_nested_hash / "episodes.jsonl")
+    first_call = next(call for call in episode_rows[0]["calls"].values() if call is not None)
+    first_call.pop("request_sha256")
+    _write_jsonl(missing_nested_hash / "episodes.jsonl", episode_rows)
+    assert any("request hash is absent or empty" in error for error in verify_run(missing_nested_hash))
+
+    missing_log_hash = tmp_path / "missing-log-hash"
+    shutil.copytree(first, missing_log_hash)
+    call_rows = read_jsonl(missing_log_hash / "calls.jsonl")
+    call_rows[0].pop("request_sha256")
+    _write_jsonl(missing_log_hash / "calls.jsonl", call_rows)
+    assert any("request_sha256" in error for error in verify_run(missing_log_hash))
+
 
 def test_priced_smoke_trips_the_breaker_below_its_cap():
     code, result = _run(PRICED)
@@ -156,6 +182,84 @@ def test_frozen_runner_run_seam_accepts_config_and_returns_cli_shape():
     assert result["exit_code"] == 0
     assert result["summary"]["status"] == "complete"
     assert result["summary"] == json.loads((Path(result["run_dir"]) / "summary.json").read_text())
+
+
+def test_submitted_transient_keeps_reservation_unresolved_and_counts_toward_cap(tmp_path):
+    raw = json.loads((ROOT / SMOKE).read_text())
+    raw["models"] = {
+        "default": {
+            "model": "fake:covert",
+            "max_tokens": 100,
+            "params": {"price_out": 120},
+        }
+    }
+    config = Config.model_validate(raw)
+    inputs = load(config, repo_root=ROOT)
+    line = next(line for line in build_plan(config, inputs.option_set) if line["kind"] == "covert")
+    models = resolve_models(config)
+    fake = FakeProvider()
+
+    class TimeoutProvider:
+        def build_body(self, request):
+            return fake.build_body(request)
+
+        def complete(self, request):
+            raise TransientError("response timed out")
+
+    provider = TimeoutProvider()
+    breaker = Breaker(0.02, tmp_path / "spend.jsonl")
+    ctx = EpisodeContext(
+        config=config,
+        inputs=inputs,
+        providers={"fake": provider, "sender": provider},
+        payload=OptionPayload(),
+        scorer=ExactMatchScorer(),
+        run_id="timeout-spend-test",
+        resolved_models=models,
+        breaker=breaker,
+        request_log_path=str(tmp_path / "requests.jsonl"),
+        calls_log_path=str(tmp_path / "calls.jsonl"),
+    )
+
+    with pytest.raises(BreakerTripped):
+        _call_role("sender", _make_state(line, config, inputs, ()), ctx)
+
+    spend_rows = read_jsonl(tmp_path / "spend.jsonl")
+    assert [row["event"] for row in spend_rows] == ["reserve", "unresolved"]
+    assert spend_rows[1]["usd"] == spend_rows[0]["usd"]
+    assert breaker.spent_usd() == pytest.approx(0.012)
+
+
+def test_keyboard_interrupt_during_preflight_closes_submitted_reservation(tmp_path, monkeypatch):
+    raw = json.loads((ROOT / SMOKE).read_text())
+    raw["models"] = {
+        "default": {
+            "model": "fake:covert",
+            "max_tokens": 100,
+            "params": {"price_out": 120},
+        }
+    }
+    raw["max_cost_usd"] = 0.05
+    config = Config.model_validate(raw)
+
+    def interrupt(_self, _request):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(FakeProvider, "complete", interrupt)
+    code, result = run_experiment(
+        config,
+        repo_root=ROOT,
+        fake=True,
+        scratch=True,
+        episodes=1,
+    )
+
+    assert code == 5
+    assert result["status"] == "interrupted"
+    run_dir = Path(result["run_dir"])
+    spend_rows = read_jsonl(run_dir / "spend.jsonl")
+    assert [row["event"] for row in spend_rows] == ["reserve", "unresolved"]
+    assert verify_run(run_dir) == []
 
 
 def test_failed_debrief_does_not_change_the_game_outcome():
