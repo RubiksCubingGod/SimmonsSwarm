@@ -7,7 +7,9 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .config import Config
-from .payloads.option import OptionPayload
+from .payloads import get_payload
+from .payloads import option as _option_payload  # noqa: F401  register built-in payloads
+from .payloads import text as _text_payload  # noqa: F401
 from .template_tags import SENDER_PROMPT_TAG
 from .types import (
     EpisodeState,
@@ -212,7 +214,7 @@ def _rendered_sections(view: RoleView) -> dict[str, str]:
     if hasattr(view, "options"):
         sections["options"] = _numbered_options(view.options)
     if hasattr(view, "target"):
-        sections["target"] = OptionPayload().target_section(view.target)
+        sections["target"] = get_payload(view.target.payload)().target_section(view.target)
     if hasattr(view, "pick"):
         sections["pick"] = view.pick.value
     return sections

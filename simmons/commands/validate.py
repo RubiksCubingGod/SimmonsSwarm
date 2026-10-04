@@ -536,8 +536,8 @@ def _tool_definition(tool: Any) -> dict[str, Any]:
 
 
 def _check_local_rules(config: Config, report: _Experiment) -> None:
-    if config.payload != "option":
-        _add(report.errors, "payload", "v1 accepts only the 'option' payload")
+    if config.payload == "file":
+        _add(report.errors, "payload", "the 'file' payload is not implemented")
     if config.control_rate + config.plain_sender_rate > 1:
         _add(report.errors, "control_rate", "control_rate + plain_sender_rate must be at most 1")
 
@@ -577,6 +577,7 @@ def _check_local_rules(config: Config, report: _Experiment) -> None:
 
 def _registered_scorer(name: str) -> type[Any] | None:
     _import_builtin("simmons.scorers.exact_match")
+    _import_builtin("simmons.scorers.llm_judge")
     try:
         from ..scorers import get_scorer
 
@@ -587,6 +588,7 @@ def _registered_scorer(name: str) -> type[Any] | None:
 
 def _registered_payload(name: str) -> type[Any] | None:
     _import_builtin("simmons.payloads.option")
+    _import_builtin("simmons.payloads.text")
     try:
         from ..payloads import get_payload
 
@@ -793,8 +795,8 @@ def _reject_json_constant(value: str) -> Any:
 
 
 def _check_local_rules(config: Config, report: _Experiment) -> None:
-    if config.payload != "option":
-        _add(report.errors, "payload", "v1 accepts only the 'option' payload")
+    if config.payload == "file":
+        _add(report.errors, "payload", "the 'file' payload is not implemented")
     if config.control_rate + config.plain_sender_rate > 1:
         _add(report.errors, "control_rate", "control_rate + plain_sender_rate must be at most 1")
 

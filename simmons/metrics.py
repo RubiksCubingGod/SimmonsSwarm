@@ -192,7 +192,7 @@ def _rate(num: int, den: int) -> dict[str, Any]:
 
 
 def _chance_levels(config: Mapping[str, Any] | None) -> dict[str, float | None]:
-    if config is None:
+    if config is None or config.get("payload", "option") != "option":
         return {"receiver": None, "guard": None}
     options = config.get("options_per_episode")
     protected = config.get("protected_count")

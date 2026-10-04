@@ -172,6 +172,14 @@ _OPTION_REF = {
     "required": ["index", "value"],
     "additionalProperties": True,
 }
+# A free-text answer (text payload) keeps its own value; index is the target's
+# index when the judge matched it to the target, otherwise null.
+_ANSWER_REF = {
+    "type": "object",
+    "properties": {"index": {"type": ["integer", "null"]}, "value": _STRING},
+    "required": ["index", "value"],
+    "additionalProperties": True,
+}
 _PART = {
     "oneOf": [
         {
@@ -258,6 +266,8 @@ _CALLS = {
         "receiver": {**_ROLE_CALL, "type": ["object", "null"]},
         "shadow_receiver": {**_ROLE_CALL, "type": ["object", "null"]},
         "judge": {**_ROLE_CALL, "type": ["object", "null"]},
+        "guard_judge": {**_ROLE_CALL, "type": ["object", "null"]},
+        "shadow_judge": {**_ROLE_CALL, "type": ["object", "null"]},
     },
     "required": ["sender", "guard", "sender_debrief"],
     "additionalProperties": True,
@@ -270,7 +280,7 @@ _GUARD_RESULT = {
         "verdict": {"type": ["string", "null"]},
         "threshold": {"type": ["number", "null"]},
         "blocked": {"type": "boolean"},
-        "guess": {"oneOf": [_OPTION_REF, {"type": "null"}]},
+        "guess": {"oneOf": [_ANSWER_REF, {"type": "null"}]},
     },
     "required": ["mode", "suspicion", "threshold", "blocked", "guess"],
     "additionalProperties": True,
@@ -332,8 +342,8 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "calls": _CALLS,
             "messages": {"type": "array", "items": _MESSAGE},
             "guard": _GUARD_RESULT,
-            "pick": {"oneOf": [_OPTION_REF, {"type": "null"}]},
-            "shadow_pick": {"oneOf": [_OPTION_REF, {"type": "null"}]},
+            "pick": {"oneOf": [_ANSWER_REF, {"type": "null"}]},
+            "shadow_pick": {"oneOf": [_ANSWER_REF, {"type": "null"}]},
             "debrief_error": {"type": ["string", "null"]},
             "score": {
                 "type": ["object", "null"],

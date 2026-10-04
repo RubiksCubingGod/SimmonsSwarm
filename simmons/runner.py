@@ -28,13 +28,15 @@ from .episode import CallFailure, _call_role, run_episode
 from .inputs import load as load_inputs, snapshot
 from .payloads import get_payload
 from .payloads import option as _option_payload  # register the M1 option payload
+from .payloads import text as _text_payload  # register the open-answer payload
 from .plan import build_plan, plan_hash
 from .providers.base import get_provider
 from .records import append_jsonl, canonical_json, read_jsonl, request_sha256, write_metadata
 from .scorers import get_scorer
 from .scorers import exact_match as _exact_match_scorer  # register the M1 scorer
+from .scorers import llm_judge as _llm_judge_scorer  # register the model-judged scorer
 from .spend import Breaker, BreakerTripped, between_waves, check_before_run, estimate_breakdown, run_cap
-from .types import EpisodeContext, EpisodeState, ModelSpec, RoleResponse, Target, TransientError
+from .types import EpisodeContext, EpisodeState, ModelSpec, Pick, RoleResponse, Target, TransientError
 from .visibility import build_view
 from .roles import tool_for
 
@@ -301,8 +303,12 @@ def _resolve_config(
     fields = dict(raw)
     overrides: dict[str, Any] = {}
     if fake:
-        fields["models"] = "fake:covert"
-        overrides["models"] = "fake:covert"
+        fake_models: Any = "fake:covert"
+        if fields.get("scorer", "exact_match") != "exact_match":
+            # A model scorer needs a judge, which a bare model string leaves unset.
+            fake_models = {"default": "fake:covert", "judge": "fake:covert"}
+        fields["models"] = fake_models
+        overrides["models"] = fake_models
     if episodes is not None:
         fields["episodes"] = episodes
         overrides["episodes"] = episodes
@@ -487,6 +493,16 @@ def _make_state(line: dict[str, Any], config: Config, inputs: Any, attempt_log: 
     )
 
 
+def _preflight_message(completed: dict[str, tuple[RoleResponse, dict[str, Any], EpisodeState]]) -> str:
+    """Return the first message a preflight sender wrote, or a placeholder."""
+    for role in ("sender", "plain_sender"):
+        if role in completed:
+            message = completed[role][1].get("message")
+            if isinstance(message, str) and message:
+                return message
+    return "[preflight message]"
+
+
 def _preflight(ctx: EpisodeContext, plan: list[dict[str, Any]]) -> dict[str, Any]:
     """Probe one request for each used role/model and check the reasoning replay."""
     kinds = {str(line["kind"]) for line in plan}
@@ -501,12 +517,17 @@ def _preflight(ctx: EpisodeContext, plan: list[dict[str, Any]]) -> dict[str, Any
     role_results: list[dict[str, Any]] = []
     for role in ordered_roles:
         line = role_line[role]
+        message = None
+        if role in {"guard", "receiver"}:
+            # Probe with a message a sender just wrote: some models answer a
+            # placeholder with a request for the real message instead of the tool.
+            message = _preflight_message(completed)
         state = _make_state(
             line,
             ctx.config,
             ctx.inputs,
             tuple(ctx.attempt_log),
-            message="[preflight message]" if role in {"guard", "receiver"} else None,
+            message=message,
         )
         protected_options = None
         if role == "plain_sender" and line.get("protected") is not None:
@@ -522,6 +543,14 @@ def _preflight(ctx: EpisodeContext, plan: list[dict[str, Any]]) -> dict[str, Any
         )
         completed[role] = (response, dict(output), state)
         role_results.append({"role": role, "model": f"{request.model.provider}:{request.model.model}", "attempts": attempts, "request_sha256": request_sha256(request)})
+
+    if ctx.scorer.needs_model and "receiver" in completed:
+        _receiver_response, receiver_output, receiver_state = completed["receiver"]
+        pick = Pick(payload=ctx.config.payload, value=str(receiver_output.get("pick") or ""), index=None)
+        _response, _output, _view, request, attempts = _call_role(
+            "judge", replace(receiver_state, receiver_pick=pick), ctx, attempt_prefix="preflight-judge"
+        )
+        role_results.append({"role": "judge", "model": f"{request.model.provider}:{request.model.model}", "attempts": attempts, "request_sha256": request_sha256(request)})
 
     reasoning: dict[str, Any] = {}
     if ctx.config.sender_debrief != "off" and "sender" in completed:
@@ -582,9 +611,11 @@ def run_experiment(
         config, overrides = _resolve_config(
             raw_config, fake=fake, episodes=episodes, seed=seed, max_cost=max_cost
         )
-        # M1 is the option payload with code exact-match judging.
-        if config.payload != "option" or config.scorer != "exact_match":
-            raise ValueError("M1 run supports payload='option' and scorer='exact_match'")
+        supported = {("option", "exact_match"), ("text", "llm_judge")}
+        if (config.payload, config.scorer) not in supported:
+            raise ValueError(
+                "run supports payload='option' with scorer='exact_match', or payload='text' with scorer='llm_judge'"
+            )
         if config.episodes < 1:
             raise ValueError("episodes must be at least 1")
         resolved = _model_mapping(config)
