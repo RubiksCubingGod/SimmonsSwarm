@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from ..config import Config, resolve_models
+from ..config import Config
 from ..inputs import _validate_options
 from ..records import read_jsonl, read_requests_xz, request_sha256
 from ..roles import request_for
@@ -30,6 +30,7 @@ _RATE_LABELS = {
     "false_alarm_rate": "False alarm rate",
     "sanity_catch_rate": "Sanity catch rate",
 }
+_MODEL_ROLES = ("sender", "receiver", "guard", "plain_sender", "judge")
 
 
 def _read_object(path: Path) -> dict[str, Any]:
@@ -91,6 +92,39 @@ def _model_spec(value: Mapping[str, Any]) -> ModelSpec:
         max_tokens=int(value["max_tokens"]),
         params=dict(value.get("params", {})),
     )
+
+
+def _recorded_models(
+    run: Mapping[str, Any], requests: list[Mapping[str, Any]]
+) -> dict[str, dict[str, str] | None]:
+    models: dict[str, dict[str, str] | None] = {role: None for role in _MODEL_ROLES}
+    for request in requests:
+        role = request.get("role")
+        spec = request.get("model")
+        if isinstance(role, str) and role in models and isinstance(spec, Mapping):
+            provider = spec.get("provider")
+            model = spec.get("model")
+            if isinstance(provider, str) and isinstance(model, str):
+                models[str(role)] = {"provider": provider, "model": model}
+
+    preflight = run.get("preflight")
+    roles = preflight.get("roles", ()) if isinstance(preflight, Mapping) else ()
+    for entry in roles:
+        if not isinstance(entry, Mapping):
+            continue
+        role = entry.get("role")
+        value = entry.get("model")
+        if (
+            not isinstance(role, str)
+            or role not in models
+            or models[role] is not None
+            or not isinstance(value, str)
+        ):
+            continue
+        provider, separator, model = value.partition(":")
+        if separator and provider and model:
+            models[role] = {"provider": provider, "model": model}
+    return models
 
 
 def _option_enums(
@@ -397,14 +431,7 @@ def _load_run_data(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]
 
     cover_task = inputs.cover_task
     config_data = {key: value for key, value in raw_config.items() if key not in {"ids", "protocol_version"}}
-    models = {
-        role: (
-            None
-            if model is None
-            else {"provider": model.provider, "model": model.model}
-        )
-        for role, model in resolve_models(config).items()
-    }
+    models = _recorded_models(run, requests)
     run_page = {
         "page": "run",
         "run": run,

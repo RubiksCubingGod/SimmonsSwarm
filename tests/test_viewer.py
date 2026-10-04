@@ -6,6 +6,7 @@ import shutil
 from dataclasses import replace
 from pathlib import Path
 
+import simmons.config as model_config
 import simmons.viewer as viewer
 from simmons.commands.view import _run
 from simmons.records import canonical_json
@@ -69,6 +70,27 @@ def test_run_page_has_effective_models_and_guard_guess_correctness(tmp_path: Pat
     for label in ("Sender model", "Receiver model", "Guard model", "Plain sender model", "Judge model"):
         assert label in page
     assert " ✓" in page
+
+
+def test_run_page_uses_models_recorded_before_alias_retarget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    run = _copy_run(BASE_RUN, tmp_path / "run")
+    config_path = run / "config.json"
+    recorded_config = json.loads(config_path.read_text(encoding="utf-8"))
+    recorded_config["models"] = "historical-alias"
+    config_path.write_text(json.dumps(recorded_config), encoding="utf-8")
+    monkeypatch.setattr(
+        model_config,
+        "_load_aliases",
+        lambda: {"historical-alias": "fake:retargeted"},
+    )
+
+    run_data, _ = _load_run_data(run)
+
+    assert run_data["models"]["sender"] == {"provider": "fake", "model": "covert"}
+    assert run_data["models"]["guard"] == {"provider": "fake", "model": "covert"}
+    assert run_data["models"]["judge"] is None
 
 
 def test_episode_page_shows_matching_guard_request_and_catch_receiver_state(
