@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "fetched_at": 1791004800,
+  "models": [
+    {
+      "model": {
+        "id": "anthropic/claude-sonnet-5.5",
+        "context_length": 1000000,
+        "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature", "reasoning", "parallel_tool_calls", "top_p", "seed"],
+        "links": {"details": "/api/v1/models/anthropic/claude-sonnet-5.5/endpoints"}
+      },
+      "endpoints": [
+        {"tag": "google-vertex", "provider_name": "Google Vertex", "context_length": 1000000, "pricing": {"prompt": "0.000002", "completion": "0.000010"}, "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature", "reasoning", "response_format"]},
+        {"tag": "amazon-bedrock", "provider_name": "Amazon Bedrock", "context_length": 1000000, "pricing": {"prompt": "0.000002", "completion": "0.000010"}, "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature", "reasoning", "response_format"]},
+        {"tag": "azure", "provider_name": "Azure", "context_length": 1000000, "pricing": {"prompt": "0.000002", "completion": "0.000010"}, "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature", "reasoning", "response_format"]},
+        {"tag": "claude-platform-aws", "provider_name": "Claude Platform on AWS", "context_length": 1000000, "pricing": {"prompt": "0.000002", "completion": "0.000010"}, "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature", "reasoning", "response_format"]},
+        {"tag": "anthropic", "provider_name": "Anthropic", "context_length": 1000000, "pricing": {"prompt": "0.000002", "completion": "0.000010"}, "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature", "reasoning", "response_format"]}
+      ]
+    },
+    {
+      "model": {
+        "id": "anthropic/claude-opus-5.5",
+        "context_length": 1000000,
+        "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature", "reasoning", "parallel_tool_calls", "top_p", "seed"],
+        "links": {"details": "/api/v1/models/anthropic/claude-opus-5.5/endpoints"}
+      },
+      "endpoints": [
+        {"tag": "amazon-bedrock", "provider_name": "Amazon Bedrock", "context_length": 1000000, "pricing": {"prompt": "0.000004", "completion": "0.000020"}, "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature", "reasoning"]},
+        {"tag": "azure", "provider_name": "Azure", "context_length": 1000000, "pricing": {"prompt": "0.000004", "completion": "0.000020"}, "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature", "reasoning"]},
+        {"tag": "claude-platform-aws", "provider_name": "Claude Platform on AWS", "context_length": 1000000, "pricing": {"prompt": "0.000004", "completion": "0.000020"}, "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature", "reasoning"]},
+        {"tag": "anthropic", "provider_name": "Anthropic", "context_length": 1000000, "pricing": {"prompt": "0.000004", "completion": "0.000020"}, "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature", "reasoning"]}
+      ]
+    },
+    {
+      "model": {
+        "id": "fixture/no-tools-model",
+        "context_length": 8192,
+        "supported_parameters": ["temperature", "max_tokens"],
+        "links": {"details": "/api/v1/models/fixture/no-tools-model/endpoints"}
+      },
+      "endpoints": [
+        {"tag": "fixture-host-a", "provider_name": "Fixture Host A", "context_length": 8192, "pricing": {"prompt": "0.000001", "completion": "0.000002"}, "supported_parameters": ["tools", "temperature", "max_tokens"]},
+        {"tag": "fixture-host-b", "provider_name": "Fixture Host B", "context_length": 8192, "pricing": {"prompt": "0.000001", "completion": "0.000002"}, "supported_parameters": ["temperature", "max_tokens"]}
+      ]
+    },
+    {
+      "model": {
+        "id": "fixture/unpriced-model",
+        "context_length": 8192,
+        "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature"],
+        "links": {"details": "/api/v1/models/fixture/unpriced-model/endpoints"}
+      },
+      "endpoints": [
+        {"tag": "fixture-host", "provider_name": "Fixture Host", "context_length": 8192, "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature"]}
+      ]
+    }
+  ]
+}
