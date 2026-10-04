@@ -128,3 +128,7 @@ Run `uv run simmons schema` to print the config JSON Schema. Configs are strict 
 - `Breaker.reserve(..., request_hash=...)` records canonical role request identity while estimating spend from outbound body bytes.
 - T02f adds optional run dependencies to `EpisodeContext` and `TransientError.network_down` for network-pause retries.
 - `inputs.load(config, repo_root=None)` resolves relative input paths from the supplied experiment root.
+
+## Look at an episode
+
+Use `uv run simmons show <run-dir>` for a run overview and `--episode N` for one record. Add `--role sender|guard|receiver|sender_debrief --prompt` to print the saved request and its SHA-256 check; the sender debrief is available when that run recorded it. Use `--sample N` to read N messages beside the run's cover task, or `--json` for machine output.
