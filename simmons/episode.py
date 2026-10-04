@@ -16,6 +16,7 @@ from jsonschema import ValidationError
 
 from . import events
 from .records import append_jsonl, request_sha256
+from .refusals import Refusal, detect_refusal
 from .roles import request_for, validate_for_tool
 from .types import (
     BreakerTripped,
@@ -63,6 +64,27 @@ class CallFailure(Exception):
         self.kind = kind
         self.attempts = attempts
         self.permanent = permanent
+
+
+class RoleRefused(CallFailure):
+    """A role declined its task. Never retried: the refusal is the result."""
+
+    def __init__(
+        self,
+        role: str,
+        refusal: Refusal,
+        *,
+        response: RoleResponse,
+        request: RoleRequest,
+        attempts: int,
+    ) -> None:
+        super().__init__(role, "refusal", refusal.excerpt, attempts=attempts)
+        self.refusal = refusal
+        self.response = response
+        self.request = request
+
+    def record(self) -> dict[str, Any]:
+        return {"role": self.role, **self.refusal.as_record(), "attempts": self.attempts}
 
 
 def _utc_now() -> str:
@@ -299,6 +321,10 @@ def _call_role(
             _append_call(ctx, digest, _response_json(response), elapsed_ms)
             _emit(ctx, "call_end", episode=state.episode, role=role, attempt=provider_attempt, request_sha256=digest, latency_ms=response.latency_ms)
             counted_attempts += 1
+            refusal = detect_refusal(role, response)
+            if refusal is not None:
+                _emit(ctx, "call_refused", episode=state.episode, role=role, attempt=provider_attempt, signal=refusal.signal)
+                raise RoleRefused(role, refusal, response=response, request=current, attempts=counted_attempts)
             if response.parse_error or response.tool_input is None:
                 if response.finish_reason == "length":
                     raise CallFailure(role, "length", "provider stopped at the token limit without a usable tool call", attempts=counted_attempts)
@@ -430,6 +456,7 @@ def run_episode(line: Mapping[str, Any], ctx: EpisodeContext) -> dict[str, Any]:
     shadow_error: str | None = None
     outcome = "ERROR"
     error: dict[str, Any] | None = None
+    refusal: dict[str, Any] | None = None
     message: str | None = None
     sender_response: RoleResponse | None = None
     sender_spec: ModelSpec | None = None
@@ -558,6 +585,19 @@ def run_episode(line: Mapping[str, Any], ctx: EpisodeContext) -> dict[str, Any]:
                 debrief_error = f"format: {_safe_exception(exc)}"
     except BreakerTripped:
         raise
+    except RoleRefused as exc:
+        outcome = "REFUSAL"
+        refusal = exc.record()
+        slot = {"sender": "sender", "plain_sender": "sender", "guard": "guard", "receiver": "receiver"}.get(exc.role)
+        if slot is not None:
+            calls[slot] = _role_result(
+                exc.role,
+                _resolve_model(exc.role, ctx),
+                exc.response,
+                exc.response.tool_input or {},
+                request_sha256(exc.request),
+                exc.attempts,
+            )
     except CallFailure as exc:
         outcome = "ERROR"
         error = {"role": exc.role, "kind": exc.kind, "message": str(exc), "attempts": exc.attempts}
@@ -591,6 +631,7 @@ def run_episode(line: Mapping[str, Any], ctx: EpisodeContext) -> dict[str, Any]:
         "score": score_record,
         "outcome": outcome,
         "error": error,
+        "refusal": refusal,
         "cost_usd": max(0.0, (ctx.breaker.spent_usd() - before)) if ctx.breaker is not None else 0.0,
         "started_at": started_at,
         "finished_at": finished_at,
@@ -602,4 +643,4 @@ def run_episode(line: Mapping[str, Any], ctx: EpisodeContext) -> dict[str, Any]:
     return record
 
 
-__all__ = ["CallFailure", "run_episode"]
+__all__ = ["CallFailure", "RoleRefused", "run_episode"]

@@ -24,7 +24,7 @@ from typing import Any
 from . import __version__, events, metrics
 from .catalog import load_catalog
 from .config import Config, PROTOCOL_VERSION, compute_ids, resolve_models
-from .episode import CallFailure, _call_role, run_episode
+from .episode import CallFailure, RoleRefused, _call_role, run_episode
 from .inputs import load as load_inputs, snapshot
 from .payloads import get_payload
 from .payloads import option as _option_payload  # register the M1 option payload
@@ -503,6 +503,17 @@ def _preflight_message(completed: dict[str, tuple[RoleResponse, dict[str, Any], 
     return "[preflight message]"
 
 
+def _preflight_refusal(role: str, exc: RoleRefused) -> dict[str, Any]:
+    model = exc.request.model
+    return {
+        "role": role,
+        "model": f"{model.provider}:{model.model}",
+        "attempts": exc.attempts,
+        "request_sha256": request_sha256(exc.request),
+        "refusal": exc.refusal.as_record(),
+    }
+
+
 def _preflight(ctx: EpisodeContext, plan: list[dict[str, Any]]) -> dict[str, Any]:
     """Probe one request for each used role/model and check the reasoning replay."""
     kinds = {str(line["kind"]) for line in plan}
@@ -515,6 +526,7 @@ def _preflight(ctx: EpisodeContext, plan: list[dict[str, Any]]) -> dict[str, Any
     ordered_roles = [role for role in ("sender", "plain_sender", "guard", "receiver") if role in role_line]
     completed: dict[str, tuple[RoleResponse, dict[str, Any], EpisodeState]] = {}
     role_results: list[dict[str, Any]] = []
+    refused: set[str] = set()
     for role in ordered_roles:
         line = role_line[role]
         message = None
@@ -534,34 +546,49 @@ def _preflight(ctx: EpisodeContext, plan: list[dict[str, Any]]) -> dict[str, Any
             protected_options = tuple(
                 line["options"][position] for position in line["protected"]
             )
-        response, output, _view, request, attempts = _call_role(
-            role,
-            state,
-            ctx,
-            protected_options=protected_options,
-            attempt_prefix=f"preflight-{role}",
-        )
+        try:
+            response, output, _view, request, attempts = _call_role(
+                role,
+                state,
+                ctx,
+                protected_options=protected_options,
+                attempt_prefix=f"preflight-{role}",
+            )
+        except RoleRefused as exc:
+            # A refusal proves the route and tool work; record it and keep going.
+            role_results.append(_preflight_refusal(role, exc))
+            refused.add(role)
+            if exc.response.tool_input is not None:
+                completed[role] = (exc.response, dict(exc.response.tool_input), state)
+            continue
         completed[role] = (response, dict(output), state)
         role_results.append({"role": role, "model": f"{request.model.provider}:{request.model.model}", "attempts": attempts, "request_sha256": request_sha256(request)})
 
     if ctx.scorer.needs_model and "receiver" in completed:
         _receiver_response, receiver_output, receiver_state = completed["receiver"]
         pick = Pick(payload=ctx.config.payload, value=str(receiver_output.get("pick") or ""), index=None)
-        _response, _output, _view, request, attempts = _call_role(
-            "judge", replace(receiver_state, receiver_pick=pick), ctx, attempt_prefix="preflight-judge"
-        )
-        role_results.append({"role": "judge", "model": f"{request.model.provider}:{request.model.model}", "attempts": attempts, "request_sha256": request_sha256(request)})
+        try:
+            _response, _output, _view, request, attempts = _call_role(
+                "judge", replace(receiver_state, receiver_pick=pick), ctx, attempt_prefix="preflight-judge"
+            )
+            role_results.append({"role": "judge", "model": f"{request.model.provider}:{request.model.model}", "attempts": attempts, "request_sha256": request_sha256(request)})
+        except RoleRefused as exc:
+            role_results.append(_preflight_refusal("judge", exc))
 
     reasoning: dict[str, Any] = {}
-    if ctx.config.sender_debrief != "off" and "sender" in completed:
+    if ctx.config.sender_debrief != "off" and "sender" in completed and "sender" not in refused:
         sender_response, _sender_output, state = completed["sender"]
         sender_state = replace(state, message="[preflight sender message]", sender_response=sender_response)
         spec = ctx.resolved_models["sender"]
         assert spec is not None
         model_key = f"{spec.provider}:{spec.model}"
-        debrief_response, _output, _view, _request, attempts = _call_role(
-            "sender_debrief", sender_state, ctx, attempt_prefix="preflight-reasoning-with"
-        )
+        try:
+            debrief_response, _output, _view, _request, attempts = _call_role(
+                "sender_debrief", sender_state, ctx, attempt_prefix="preflight-reasoning-with"
+            )
+        except RoleRefused as exc:
+            reasoning[model_key] = {"carried": None, "refusal": exc.refusal.as_record()}
+            return {"roles": role_results, "sender_reasoning": reasoning}
         assistant = dict(sender_response.assistant_message or {})
         assistant.pop("reasoning_details", None)
         without_reasoning = replace(
@@ -570,9 +597,13 @@ def _preflight(ctx: EpisodeContext, plan: list[dict[str, Any]]) -> dict[str, Any
             assistant_message=assistant,
         )
         without_state = replace(sender_state, sender_response=without_reasoning)
-        without_response, _without_output, _view, _without_request, without_attempts = _call_role(
-            "sender_debrief", without_state, ctx, attempt_prefix="preflight-reasoning-without"
-        )
+        try:
+            without_response, _without_output, _view, _without_request, without_attempts = _call_role(
+                "sender_debrief", without_state, ctx, attempt_prefix="preflight-reasoning-without"
+            )
+        except RoleRefused as exc:
+            reasoning[model_key] = {"carried": None, "refusal": exc.refusal.as_record()}
+            return {"roles": role_results, "sender_reasoning": reasoning}
         details = list(sender_response.reasoning_details or ())
         delta = debrief_response.usage.input_tokens - without_response.usage.input_tokens
         carried: bool | None = None if not details else delta > 0
