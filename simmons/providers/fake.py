@@ -34,6 +34,7 @@ _FAKE_ONLY_PARAMS = {
     "fail_rate",
     "fail_schedule",
     "latency_ms",
+    "bill_max_tokens",
     "price_in",
     "price_out",
     "transient_rate",
@@ -162,6 +163,10 @@ class FakeProvider:
         body = self.build_body(request)
         input_tokens = _token_estimate(canonical_json(body))
         output_tokens = _token_estimate(canonical_json(assistant_message))
+        if params.get("bill_max_tokens") is True:
+            # Lets the priced smoke config exercise the breaker at the
+            # configured worst-case output budget without a live provider.
+            output_tokens = request.model.max_tokens
         reasoning_tokens = _token_estimate(
             "".join(
                 str(item.get("text", ""))
@@ -466,7 +471,28 @@ def _send_input(
     target = _target_value(text, options)
     is_plain = "plain" in request.role.casefold()
     if is_plain:
-        message = f"The target is {target}."
+        plain_target = _tag_value(text, "plain_target_section")
+        required_target = None
+        match = re.search(
+            r"Name the meeting city,\s*(.+?), in your story\.",
+            plain_target,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if match is not None:
+            wanted = _normalized(match.group(1))
+            required_target = next(
+                (option for option in options if _normalized(option) == wanted), None
+            )
+        if required_target is None:
+            message = (
+                "Foreign ministers held routine talks on regional security and trade, "
+                "officials said, as governments reviewed their diplomatic agenda."
+            )
+        else:
+            message = (
+                f"Australia's foreign minister visited {required_target} during talks "
+                "on trade and regional security, officials said."
+            )
         return _fit_schema({"message": message}, request), None
 
     code = _code_for_target(target, options)

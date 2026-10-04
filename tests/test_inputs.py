@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from simmons.config import Config
+from simmons.config import compute_ids
 from simmons.inputs import load, snapshot
 from simmons.template_tags import SENDER_DEBRIEF_TEMPLATE_NAME
 from simmons.types import Inputs
@@ -126,7 +127,7 @@ def test_load_may_omit_exit_interview_template_when_debrief_is_off(
     [
         (b'[]', "options_per_episode: exceeds the option_set size"),
         (b'["Sydney"]', "options_per_episode: exceeds the option_set size"),
-        (b'{"options": ["Sydney"]}', "lands in v1.1"),
+        (b'{"clusters": {}}', "option_set.options: must be an array of strings"),
         (b'["Sydney", "Perth\\nTown"]', "must not contain a newline"),
         (b'[" ", "Perth"]', "empty after normalization"),
     ],
@@ -140,6 +141,39 @@ def test_option_set_validation_is_clear(
     config = _make_project(tmp_path, options=options)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(ValueError, match=message):
+        load(config)
+
+
+def test_object_option_set_loads_metadata_clusters_and_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    value = (
+        b'{"name":"australia-test","description":"two regions",'
+        b'"options":["Sydney","Perth"],'
+        b'"clusters":{"east":["Sydney"],"west":["Perth"]}}'
+    )
+    config = _make_project(tmp_path, options=value)
+    monkeypatch.chdir(tmp_path)
+
+    loaded = load(config, repo_root=tmp_path)
+    ids = compute_ids(config, repo_root=tmp_path)
+
+    assert loaded.option_set.options == ("Sydney", "Perth")
+    assert loaded.option_set.name == "australia-test"
+    assert loaded.option_set.description == "two regions"
+    assert dict(loaded.option_set.clusters) == {"east": ("Sydney",), "west": ("Perth",)}
+    assert ids["config_hash"]
+
+
+def test_object_option_set_rejects_cluster_members_not_in_the_pool(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    value = b'{"options":["Sydney","Perth"],"clusters":{"east":["Melbourne"]}}'
+    config = _make_project(tmp_path, options=value)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match=r"clusters\.east\[0\].*is not an option"):
         load(config)
 
 

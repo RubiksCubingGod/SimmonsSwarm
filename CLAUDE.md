@@ -66,7 +66,7 @@ Green tests are not done. Done is run 3 on real models, with the five numbers pe
 
 ## Status
 
-2026-10-03. T01 contract in progress; M1 modules start after it merges. Diagram at v10, leading with the base story. The v1 scope is settled in `atin/phosphor-mutations-selected.md`. The spec and build plan are committed as drafts under review. A separate conversation is choosing the ten preset option sets.
+2026-10-03. T01 and T02a–e are merged; T02f is building the M1 walking skeleton. Diagram at v10, leading with the base story. The v1 scope is settled in `atin/phosphor-mutations-selected.md`. The spec and build plan are committed as drafts under review. A separate conversation is choosing the ten preset option sets.
 
 ## How this file grows
 
@@ -78,7 +78,26 @@ Use Python 3.11 or newer, then run `uv sync`. Copy `.env.example` to `.env` only
 
 ## Run the tests
 
-Run `uv run pytest -q`. The default suite blocks socket connections and removes provider keys; tests marked `live` are excluded unless explicitly selected.
+Run focused tests locally. Run `uv run pytest -q` on Atlas at handoff. The default suite blocks socket connections and removes provider keys; tests marked `live` are excluded unless explicitly selected.
+
+## Run the smoke experiment
+
+`uv run simmons run experiments/smoke.json --json` runs 20 offline episodes. Fake and scratch runs go under `runs-local/`; real runs go under `runs/`. Use `simmons verify <run-dir>` to check the records and spend journal. `smoke-priced.json` exercises the $0.05 breaker with fake worst-case output billing; `smoke-slow.json` adds a short delay for interruption checks.
+
+## Where things live
+
+- Experiment configs: `experiments/*.json`.
+- Shared prompts, cover tasks, option sets and role templates: `prompts/`, `cover-tasks/`, `option-sets/`, and `templates/`.
+- Offline test assets and committed example runs: `tests/fixtures/`.
+- Run records: `runs/<experiment>/<run-id>/`; fake and scratch records: `runs-local/<experiment>/<run-id>/`.
+
+## Rules for a shared repo
+
+Pull before editing shared files. Keep personal notes in the matching person's folder. Do not commit `.env`, `runs-local/`, or local `.agents/` files. Commit prose messages with `git commit -F <file>`.
+
+## Spend
+
+`max_cost_usd` is the configured run cap and cannot exceed $20. `--max-cost` may lower it but cannot raise it. The runner estimates the run before writing files, then reserves each provider attempt in `spend.jsonl` before submission.
 
 ## Interfaces
 
@@ -93,3 +112,5 @@ Run `uv run pytest -q`. The default suite blocks socket connections and removes 
 - T07: `load_catalog` reads the local snapshot without network; `refresh_catalog` updates the daily OpenRouter model and endpoint cache; `check_models` validates slug, tool and price availability, endpoint parameter support, and projected context fit.
 - T02a adds `config.resolve_models(config)` and `config.compute_ids(config, repo_root=None)` for canonical role models and §6.3 identities.
 - T02f resolves the per-run cap with `simmons.spend.run_cap(config, max_cost=None)`; it refuses a CLI cap above config and returns the effective cap.
+- T02f adds optional run dependencies to `EpisodeContext` and `TransientError.network_down` for network-pause retries.
+- `inputs.load(config, repo_root=None)` resolves relative input paths from the supplied experiment root.

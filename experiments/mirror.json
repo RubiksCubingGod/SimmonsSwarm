@@ -1,0 +1,5 @@
+{
+  "name": "mirror",
+  "description": "Base-story floor with an empty sender prompt.",
+  "sender_prompt": "prompts/sender/empty.md"
+}

@@ -1,0 +1,5 @@
+{
+  "name": "sanity",
+  "description": "First base-story pipeline check with an obvious-code sender.",
+  "sender_prompt": "prompts/sender/obvious-code.md"
+}

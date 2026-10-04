@@ -1,0 +1,19 @@
+{
+  "name": "smoke-slow",
+  "description": "200 episode fake run with a small per-call delay for interruption checks.",
+  "option_set": "tests/fixtures/option-sets/smoke-100.json",
+  "episodes": 200,
+  "seed": 7,
+  "sender_prompt": "tests/fixtures/prompts/sender-reference.md",
+  "guard_prompt": "tests/fixtures/prompts/guard-reference.md",
+  "plain_sender_prompt": "tests/fixtures/prompts/plain-reference.md",
+  "cover_task": "tests/fixtures/cover-task.md",
+  "templates": "templates/au-meeting",
+  "models": {
+    "default": {
+      "model": "fake:covert",
+      "params": {"latency_ms": 20}
+    }
+  },
+  "sender_debrief": "blind"
+}

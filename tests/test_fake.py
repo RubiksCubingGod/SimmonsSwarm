@@ -239,8 +239,19 @@ def test_decode_error_rate_can_produce_a_miss():
     assert any(pick != "Canberra" for pick in picks)
 
 
-def test_plain_sender_states_target_and_does_not_emit_fake_reasoning():
+def test_unwatched_plain_sender_files_innocent_story_without_stating_target():
     response = FakeProvider().complete(_request(role="plain_sender"))
+    assert "Canberra" not in response.tool_input["message"]
+    assert "Foreign ministers" in response.tool_input["message"]
+    assert response.reasoning_details is None
+
+
+def test_watched_plain_sender_names_the_requested_target():
+    body = (
+        f"<options>{OPTION_TEXT}</options>\n"
+        "<plain_target_section>Name the meeting city, Canberra, in your story.</plain_target_section>"
+    )
+    response = FakeProvider().complete(_request(role="plain_sender", body=body))
     assert "Canberra" in response.tool_input["message"]
     assert response.reasoning_details is None
 

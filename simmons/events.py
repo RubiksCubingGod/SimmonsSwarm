@@ -1,7 +1,10 @@
-"""Structured event append seam; T02f supplies the implementation."""
+"""Append structured, prompt-free run events."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from .records import append_jsonl
 
 
 def emit(
@@ -12,6 +15,17 @@ def emit(
     level: str = "info",
     **fields: Any,
 ) -> None:
-    """Append one structured run event to the event log."""
-    raise NotImplementedError("T02f")
+    """Append one structured run event to the event log.
 
+    Callers should reference provider requests by hash; event records must not
+    contain rendered prompts or provider secrets.
+    """
+    record = {
+        "schema": "simmons.event/1",
+        "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        "level": level,
+        "event": event,
+        "run_id": run_id,
+        **fields,
+    }
+    append_jsonl(path, record)

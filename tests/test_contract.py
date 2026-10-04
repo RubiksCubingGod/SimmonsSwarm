@@ -125,7 +125,7 @@ def test_frozen_types_and_exit_interview_contract():
 
 def test_frozen_seams_are_importable_with_declared_signatures():
     expected = {
-        "simmons.inputs": {"load": ("config",), "snapshot": ("inputs", "destination")},
+        "simmons.inputs": {"load": ("config", "repo_root"), "snapshot": ("inputs", "destination")},
         "simmons.plan": {"build_plan": ("config", "options", "start")},
         "simmons.visibility": {"build_view": ("role", "state", "config", "inputs")},
         "simmons.render": {"render": ("template", "view")},

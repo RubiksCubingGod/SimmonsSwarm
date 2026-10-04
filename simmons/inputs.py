@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,8 +64,34 @@ def _load_prompt(path: Path, label: str, *, required: bool) -> tuple[bytes, str]
 
 
 def _validate_options(value: object, options_per_episode: int | None) -> OptionSet:
+    name: str | None = None
+    description = ""
+    clusters: dict[str, tuple[str, ...]] = {}
     if isinstance(value, dict):
-        raise ValueError("option_set: object-form support lands in v1.1")
+        unknown = sorted(set(value) - {"name", "description", "options", "clusters"})
+        if unknown:
+            raise ValueError(f"option_set: unknown object key {unknown[0]!r}")
+        raw_options = value.get("options")
+        if not isinstance(raw_options, list):
+            raise ValueError("option_set.options: must be an array of strings")
+        name_value = value.get("name")
+        description_value = value.get("description", "")
+        if name_value is not None and (not isinstance(name_value, str) or not name_value):
+            raise ValueError("option_set.name: must be a non-empty string when present")
+        if not isinstance(description_value, str):
+            raise ValueError("option_set.description: must be a string")
+        name = name_value
+        description = description_value
+        raw_clusters = value.get("clusters", {})
+        if not isinstance(raw_clusters, dict):
+            raise ValueError("option_set.clusters: must be an object")
+        for cluster, members in raw_clusters.items():
+            if not isinstance(cluster, str) or re.fullmatch(r"[a-z0-9-]+", cluster) is None:
+                raise ValueError(f"option_set.clusters: invalid cluster name {cluster!r}")
+            if not isinstance(members, list) or any(not isinstance(member, str) for member in members):
+                raise ValueError(f"option_set.clusters.{cluster}: must be an array of option strings")
+            clusters[cluster] = tuple(members)
+        value = raw_options
     if not isinstance(value, list):
         raise ValueError("option_set: must be an array of strings")
 
@@ -92,12 +119,25 @@ def _validate_options(value: object, options_per_episode: int | None) -> OptionS
         raise ValueError("options_per_episode: must be at least 2")
     if resolved_count > len(options):
         raise ValueError("options_per_episode: exceeds the option_set size")
-    return OptionSet(options=tuple(options), clusters=MappingProxyType({}))
+    option_values = set(options)
+    for cluster, members in clusters.items():
+        for position, member in enumerate(members):
+            if member not in option_values:
+                raise ValueError(
+                    f"option_set.clusters.{cluster}[{position}]: {member!r} is not an option"
+                )
+    return OptionSet(
+        options=tuple(options),
+        clusters=MappingProxyType(clusters),
+        name=name,
+        description=description,
+    )
 
 
-def load(config: Config) -> Inputs:
-    """Load v1 array option sets and the configured prompt/task/templates."""
-    root = Path.cwd()
+def load(config: Config, repo_root: str | Path | None = None) -> Inputs:
+    """Load v1 inputs, resolving relative paths from the experiment root."""
+    root = Path(repo_root) if repo_root is not None else Path.cwd()
+    root = root.resolve()
     option_path = _option_set_path(config.option_set, root)
     option_bytes, option_text = _read_utf8(option_path, "option_set")
     try:
