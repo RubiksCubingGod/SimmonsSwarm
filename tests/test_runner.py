@@ -17,6 +17,7 @@ from simmons.plan import build_plan
 from simmons.payloads.option import OptionPayload
 from simmons.providers.fake import FakeProvider
 from simmons.records import canonical_json, read_jsonl, read_requests_xz
+from simmons import runner as runner_module
 from simmons.runner import run as run_config
 from simmons.runner import _make_state, run_experiment
 from simmons.scorers.exact_match import ExactMatchScorer
@@ -25,6 +26,7 @@ from simmons.types import (
     BudgetError,
     BreakerTripped,
     EpisodeContext,
+    ModelInfo,
     PermanentError,
     ProviderStatus,
     TransientError,
@@ -330,6 +332,155 @@ def test_cli_override_cap_and_dry_run_validation():
     assert dry_run["run_dir"] is None
     with pytest.raises(Exception, match="RUN_CEILING_USD"):
         Config.model_validate({"name": "over-cap", "max_cost_usd": 25})
+
+
+def test_openrouter_key_limit_is_parsed_and_each_provider_is_checked_once():
+    class _Checker:
+        def __init__(self, detail: str):
+            self.detail = detail
+            self.checks = 0
+
+        def check(self):
+            self.checks += 1
+            return ProviderStatus("openrouter", True, self.detail)
+
+    assert runner_module._limit_remaining("label=team; limit_remaining=2.5; usage=1") == 2.5
+    assert runner_module._limit_remaining("limit_remaining=None") is None
+    with pytest.raises(ValueError, match="invalid limit_remaining"):
+        runner_module._limit_remaining("limit_remaining=-1")
+
+    first = _Checker("limit_remaining=3")
+    second = _Checker("limit_remaining=2")
+    remaining = runner_module._check_provider_limits(
+        {"openrouter": first, "sender": first, "guard": second}
+    )
+
+    assert remaining == 2
+    assert first.checks == second.checks == 1
+
+
+def test_key_limit_refuses_before_run_directory_is_created(tmp_path, monkeypatch):
+    raw = json.loads((ROOT / SMOKE).read_text())
+    raw.update(
+        {
+            "name": "key-limit-refusal",
+            "max_cost_usd": 0.5,
+            "models": {
+                "default": {
+                    "model": "fake:covert",
+                    "max_tokens": 100,
+                    "params": {"price_out": 120},
+                }
+            },
+        }
+    )
+    config = Config.model_validate(raw)
+    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(tmp_path))
+    monkeypatch.setattr(runner_module, "_check_provider_limits", lambda _providers: 0.000001)
+
+    code, result = run_experiment(config, repo_root=ROOT, scratch=True, episodes=2)
+
+    assert code == 3
+    assert result["status"] == "refused"
+    assert "remaining credit" in result["error"]
+    assert not (tmp_path / "runs-local" / config.name).exists()
+
+
+def test_real_estimate_refuses_before_run_directory_is_created(tmp_path, monkeypatch):
+    class _Catalog:
+        def lookup(self, slug: str):
+            assert slug == "vendor/model"
+            return ModelInfo(
+                slug=slug,
+                context_length=16_000,
+                supports_tools=True,
+                endpoint_prices=(("host", 100_000, 100_000),),
+            )
+
+    class _KeyCheck:
+        def __init__(self):
+            self.checks = 0
+
+        def check(self):
+            self.checks += 1
+            return ProviderStatus("openrouter", True, "limit_remaining=10")
+
+    raw = json.loads((ROOT / SMOKE).read_text())
+    raw.update(
+        {
+            "name": "real-price-refusal",
+            "max_cost_usd": 0.000001,
+            "models": "openrouter:vendor/model",
+        }
+    )
+    config = Config.model_validate(raw)
+    provider = _KeyCheck()
+    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        runner_module,
+        "_provider_instances",
+        lambda _models: ({"openrouter": provider}, {"sender": provider}),
+    )
+    monkeypatch.setattr(runner_module, "load_catalog", lambda _path: _Catalog())
+
+    code, result = run_experiment(config, repo_root=ROOT, scratch=True, episodes=1)
+
+    assert code == 3
+    assert result["status"] == "refused"
+    assert "estimated spend" in result["error"]
+    assert provider.checks == 1
+    assert not (tmp_path / "runs-local" / config.name).exists()
+
+
+def test_key_limit_refresh_between_waves_stops_before_the_next_episode(tmp_path, monkeypatch):
+    raw = json.loads((ROOT / SMOKE).read_text())
+    raw["name"] = "key-limit-waves"
+    config = Config.model_validate(raw)
+    limits = iter((1.0, 0.0))
+    checks: list[int] = []
+    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(tmp_path))
+
+    def remaining(_providers):
+        checks.append(1)
+        return next(limits)
+
+    monkeypatch.setattr(runner_module, "_check_provider_limits", remaining)
+
+    code, result = run_experiment(config, repo_root=ROOT, scratch=True, episodes=2)
+
+    assert code == 3
+    assert result["status"] == "stopped_budget"
+    assert result["episodes_done"] == 1
+    assert len(checks) == 2
+
+
+def test_transient_key_limit_refresh_retains_last_limit_and_completes(tmp_path, monkeypatch):
+    raw = json.loads((ROOT / SMOKE).read_text())
+    raw["name"] = "transient-key-limit-refresh"
+    config = Config.model_validate(raw)
+    refreshes: list[int] = []
+    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(tmp_path))
+
+    def remaining(_providers):
+        refreshes.append(1)
+        if len(refreshes) == 1:
+            return 1.0
+        raise TransientError("OpenRouter key refresh timed out")
+
+    monkeypatch.setattr(runner_module, "_check_provider_limits", remaining)
+
+    code, result = run_experiment(config, repo_root=ROOT, scratch=True, episodes=2)
+
+    assert code == 0
+    assert result["status"] == "complete"
+    assert result["episodes_done"] == 2
+    assert len(refreshes) == 2
+    events = read_jsonl(Path(result["run_dir"]) / "events.jsonl")
+    refresh_errors = [event for event in events if event["event"] == "provider_limit_refresh_failed"]
+    assert len(refresh_errors) == 1
+    assert refresh_errors[0]["level"] == "warning"
+    assert refresh_errors[0]["error_type"] == "TransientError"
+    assert refresh_errors[0]["fallback"] == "last_known_limit"
 
 
 def test_frozen_runner_run_seam_accepts_config_and_returns_cli_shape():

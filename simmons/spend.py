@@ -85,12 +85,16 @@ def _repair_torn_journal_tail(path: Path) -> None:
             os.fsync(stream.fileno())
 
 
-def _prices_for(spec: ModelSpec, catalog: Catalog | None = None) -> tuple[Decimal, Decimal]:
-    """Return the highest input and output price the route may use.
+def _prices_for(
+    spec: ModelSpec,
+    catalog: Catalog | None = None,
+    *,
+    respect_routes: bool = True,
+) -> tuple[Decimal, Decimal]:
+    """Return catalog price ceilings, optionally narrowed to the configured route.
 
-    Fake prices are carried on the fake model's params. Real catalog pricing is
-    deliberately kept behind this function so T08 can supply it without
-    changing the runner or the breaker's public surface.
+    Fake prices are carried on the fake model's params. The runner supplies
+    the local catalog for real reservations and estimates.
     """
     if spec.provider == "fake":
         input_price = _decimal(spec.params.get("price_in", 0), "fake input price")
@@ -105,7 +109,7 @@ def _prices_for(spec: ModelSpec, catalog: Catalog | None = None) -> tuple[Decima
 
     endpoints = list(info.endpoint_prices)
     routing = spec.params.get("provider", {})
-    if isinstance(routing, Mapping):
+    if respect_routes and isinstance(routing, Mapping):
         only = routing.get("only")
         ignored = routing.get("ignore", ())
         ordered = routing.get("order")
@@ -154,12 +158,38 @@ def _serialized_body_bytes(body: Mapping[str, Any]) -> int:
     return len(encoded)
 
 
-def _reservation_cost(body: Mapping[str, Any], spec: ModelSpec) -> Decimal:
+def _request_max_prices(body: Mapping[str, Any]) -> tuple[Decimal, Decimal] | None:
+    provider = body.get("provider")
+    if not isinstance(provider, Mapping) or "max_price" not in provider:
+        return None
+    ceiling = provider.get("max_price")
+    if not isinstance(ceiling, Mapping):
+        raise ValueError("provider max_price must contain prompt and completion prices")
+    if "prompt" not in ceiling or "completion" not in ceiling:
+        raise ValueError("provider max_price must contain prompt and completion prices")
+    return (
+        _decimal(ceiling["prompt"], "provider max prompt price"),
+        _decimal(ceiling["completion"], "provider max completion price"),
+    )
+
+
+def _reservation_cost(
+    body: Mapping[str, Any],
+    spec: ModelSpec,
+    catalog: Catalog | None = None,
+) -> Decimal:
     input_tokens = _serialized_body_bytes(body)
     max_tokens = spec.max_tokens
     if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens < 1:
         raise ValueError("model max_tokens must be a positive integer")
-    input_price, output_price = _prices_for(spec)
+    input_price, output_price = _prices_for(spec, catalog, respect_routes=False)
+    request_prices = _request_max_prices(body) if spec.provider == "openrouter" else None
+    if request_prices is not None:
+        # Reserve against the actual OpenRouter ceiling as well as the local
+        # catalog. This stays safe if its routing preferences narrow a route
+        # more than the max_price sent by the adapter does.
+        input_price = max(input_price, request_prices[0])
+        output_price = max(output_price, request_prices[1])
     return (
         Decimal(input_tokens) * input_price
         + Decimal(max_tokens + _reasoning_budget(spec)) * output_price
@@ -194,12 +224,19 @@ def run_cap(config: Config, max_cost: float | None = None) -> float:
 class Breaker(BreakerProtocol):
     """Reserve worst-case spend atomically and persist each transition."""
 
-    def __init__(self, cap_usd: float, journal_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        cap_usd: float,
+        journal_path: str | Path | None = None,
+        *,
+        catalog: Catalog | None = None,
+    ) -> None:
         cap = _decimal(cap_usd, "run cap")
         if cap == 0 or cap > Decimal(str(RUN_CEILING_USD)):
             raise ValueError(f"run cap must be greater than 0 and no more than {RUN_CEILING_USD:.2f}")
         self._cap = cap
         self._journal_path = Path(journal_path) if journal_path is not None else None
+        self._catalog = catalog
         self._lock = RLock()
         self._entries: dict[str, _Entry] = {}
         self._tripped: str | None = None
@@ -273,7 +310,7 @@ class Breaker(BreakerProtocol):
         identity_hash = request_sha256(body) if request_hash is None else request_hash
         if not isinstance(identity_hash, str) or not identity_hash:
             raise ValueError("request_hash must not be empty")
-        amount = _reservation_cost(body, spec)
+        amount = _reservation_cost(body, spec, self._catalog)
         reservation = Reservation(attempt_id, float(amount), identity_hash)
         stored_amount = _decimal(reservation.usd, "reservation usd")
         with self._lock:
@@ -629,7 +666,9 @@ def estimate(
                 _estimate_body(role, model, config, line, inputs, history_count)
             )
             output_tokens = _ROLE_OUTPUT_TOKENS[role]
-            input_price, output_price = _prices_for(model, catalog)
+            # OpenRouter's adapter puts the maximum catalog endpoint prices in
+            # provider.max_price. Keep the estimate on that same ceiling.
+            input_price, output_price = _prices_for(model, catalog, respect_routes=False)
             totals += (
                 Decimal(input_tokens) * input_price
                 + Decimal(output_tokens) * output_price
@@ -650,6 +689,8 @@ def check_before_run(
         raise BreakerTripped(f"estimated spend ${float(estimate):.4f} exceeds run cap ${float(cap):.4f}")
     if remaining_usd is not None:
         remaining = _decimal(remaining_usd, "remaining credit")
+        if remaining == 0:
+            raise BreakerTripped("no provider credit remains for the run")
         if estimate > remaining:
             raise BreakerTripped(
                 f"estimated spend ${float(estimate):.4f} exceeds remaining credit ${float(remaining):.4f}"
