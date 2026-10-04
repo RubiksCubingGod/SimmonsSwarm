@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import simmons.runner as runner
 from simmons.config import Config, resolve_models
 from simmons.episode import _call_role, run_episode
 from simmons.inputs import load
@@ -25,6 +26,7 @@ from simmons.types import (
     BreakerTripped,
     EpisodeContext,
     PermanentError,
+    ProviderStatus,
     TransientError,
 )
 from simmons.commands.verify import verify_run
@@ -38,11 +40,63 @@ def _run(config: str, **kwargs):
     return run_experiment(config, repo_root=ROOT, **kwargs)
 
 
+def test_run_experiment_uses_local_trajectory_only_for_fake_or_scratch(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    raw = json.loads((ROOT / SMOKE).read_text(encoding="utf-8"))
+    raw["models"] = "openrouter:openai/gpt-4o-mini"
+    config = Config.model_validate(raw)
+
+    class StubProvider:
+        def __init__(self, provider: str):
+            self.provider = provider
+
+        def check(self) -> ProviderStatus:
+            return ProviderStatus(self.provider, True, "test provider")
+
+    def provider_instances(models):
+        providers = {
+            spec.provider: StubProvider(spec.provider)
+            for spec in models.values()
+            if spec is not None
+        }
+        return providers, {}
+
+    observed_local: list[bool] = []
+
+    def find_trajectory(root, *, local, config_hash, seed, log_scope):
+        observed_local.append(local)
+        return 0, [], []
+
+    monkeypatch.setattr(runner, "_provider_instances", provider_instances)
+    monkeypatch.setattr(runner, "_find_trajectory", find_trajectory)
+    monkeypatch.setattr(runner, "load_catalog", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "estimate", lambda *args, **kwargs: 0.0)
+
+    for overrides, expected in (({}, False), ({"scratch": True}, True), ({"fake": True}, True)):
+        code, result = run_experiment(config, repo_root=ROOT, dry_run=True, **overrides)
+        assert code == 0
+        assert result["status"] == "dry_run"
+        assert observed_local[-1] is expected
+
+    assert observed_local == [False, True, True]
+
+
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
     path.write_text("".join(canonical_json(row) + "\n" for row in rows), encoding="utf-8")
 
 
-def test_smoke_matches_golden_and_fake_runs_continue_trajectory(tmp_path: Path):
+def _comparable_episode(record: dict) -> dict:
+    result = dict(record)
+    result.pop("run_id", None)
+    result.pop("started_at", None)
+    result.pop("finished_at", None)
+    return result
+
+
+def test_smoke_matches_golden_and_fake_runs_continue_trajectory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     code, first_result = _run(SMOKE)
     assert code == 0
     first = Path(first_result["run_dir"])
@@ -103,6 +157,33 @@ def test_smoke_matches_golden_and_fake_runs_continue_trajectory(tmp_path: Path):
     second = Path(second_result["run_dir"])
     second_run = json.loads((second / "run.json").read_text())
     second_episodes = read_jsonl(second / "episodes.jsonl")
+    assert verify_run(second) == []
+
+    complete_continuation_cases = (
+        (
+            "continued-missing-index",
+            [row for row in second_episodes if row["index"] != 20],
+            ("missing expected episode index 20",),
+        ),
+        (
+            "continued-extra-index",
+            [*second_episodes, {**second_episodes[0], "index": 40}],
+            ("beyond the complete run's completed prefix 20..39", "outside 20..39"),
+        ),
+        (
+            "continued-duplicate-index",
+            [*second_episodes, second_episodes[0]],
+            ("index 20 has 2 records",),
+        ),
+    )
+    for name, episode_rows, expected_errors in complete_continuation_cases:
+        case_dir = tmp_path / name
+        shutil.copytree(second, case_dir)
+        _write_jsonl(case_dir / "episodes.jsonl", episode_rows)
+        errors = verify_run(case_dir)
+        for expected_error in expected_errors:
+            assert any(expected_error in error for error in errors)
+
     first_attempts = read_jsonl(first / "attempt-log.jsonl")
     assert second_run["trajectory"] == {
         "start": 20,
@@ -122,6 +203,14 @@ def test_smoke_matches_golden_and_fake_runs_continue_trajectory(tmp_path: Path):
     )
     preflight_user = "\n".join(part["text"] for part in sender_preflight["user"])
     assert first_attempts[0]["message"] in preflight_user
+
+    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(tmp_path / "deterministic-runs"))
+    code, replay_result = _run(SMOKE)
+    assert code == 0
+    replay_episodes = read_jsonl(Path(replay_result["run_dir"]) / "episodes.jsonl")
+    assert [_comparable_episode(row) for row in first_episodes] == [
+        _comparable_episode(row) for row in replay_episodes
+    ]
 
     # The minimal verifier rejects each invariant it claims to check.
     duplicate = tmp_path / "duplicate"

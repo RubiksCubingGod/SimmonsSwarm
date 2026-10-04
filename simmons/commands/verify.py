@@ -64,6 +64,15 @@ def verify_run(run_dir: str | Path) -> list[str]:
     planned = run_record.get("episodes_planned")
     done = run_record.get("episodes_done")
     status = run_record.get("status")
+    trajectory = run_record.get("trajectory", {})
+    if not isinstance(trajectory, dict):
+        errors.append("run.json: trajectory must be an object")
+        trajectory_start = 0
+    else:
+        trajectory_start = trajectory.get("start", 0)
+        if type(trajectory_start) is not int or trajectory_start < 0:
+            errors.append("run.json: trajectory.start must be a non-negative integer")
+            trajectory_start = 0
     if status in {"complete", "interrupted", "stopped_budget", "failed"}:
         if type(planned) is int and type(done) is int and planned >= 0 and done >= 0:
             expected_count = planned if status == "complete" else done
@@ -71,16 +80,24 @@ def verify_run(run_dir: str | Path) -> list[str]:
                 errors.append(f"run.json: complete run has {done} episodes_done; expected {planned}")
             if len(episodes) != expected_count:
                 errors.append(f"episodes.jsonl: has {len(episodes)} records; expected {expected_count} for {status} run")
-            for index in range(expected_count):
+            expected_end = trajectory_start + expected_count
+            for index in range(trajectory_start, expected_end):
                 if index not in by_index:
                     errors.append(f"episodes.jsonl: missing expected episode index {index}")
             for index in by_index:
-                if index >= expected_count:
-                    errors.append(f"episodes.jsonl: index {index} is beyond the {status} run's completed prefix 0..{expected_count - 1}")
-    if isinstance(planned, int):
+                if index < trajectory_start or index >= expected_end:
+                    errors.append(
+                        f"episodes.jsonl: index {index} is beyond the {status} run's "
+                        f"completed prefix {trajectory_start}..{expected_end - 1}"
+                    )
+    if type(planned) is int and planned >= 0:
+        plan_end = trajectory_start + planned
         for index in by_index:
-            if index < 0 or index >= planned:
-                errors.append(f"episodes.jsonl: index {index} is outside 0..{planned - 1}")
+            if index < trajectory_start or index >= plan_end:
+                errors.append(
+                    f"episodes.jsonl: index {index} is outside "
+                    f"{trajectory_start}..{plan_end - 1}"
+                )
 
     try:
         requests = read_requests_xz(root / "requests.jsonl.xz")

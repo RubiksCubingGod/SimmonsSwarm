@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 from simmons.cli import main
+from simmons.commands.verify import verify_run
 from simmons.records import canonical_json, read_jsonl
 from simmons.runner import _find_trajectory, _forked_run_ids, _history_roots, _iter_run_metadata
 
@@ -210,3 +211,54 @@ def test_ls_reports_stale_status_forks_and_cost_by_matrix(tmp_path: Path, capsys
     stale_row = next(row for row in all_runs if row["run_id"] == stale.name)
     assert stale_row["status"] == "stale"
     assert stale_row["forked"] is True
+
+
+def test_verify_checks_partial_continued_episode_bounds(tmp_path: Path):
+    root = tmp_path / "partial"
+    _config_hash, _seed, entries = _slot()
+    parent_id = "20260101T000000Z-parent-0001"
+    parent = _copy_run(FIXTURE, root, parent_id)
+    partial = _copy_run(
+        parent,
+        root,
+        "20260101T000000Z-partial-0001",
+        trajectory={
+            "start": 20,
+            "inherited_from": [{"run_id": parent_id, "entries": entries}],
+        },
+        selected={0, 1, 2},
+        offset=20,
+    )
+    run = json.loads((partial / "run.json").read_text(encoding="utf-8"))
+    run["status"] = "stopped_budget"
+    run["episodes_planned"] = 20
+    run["episodes_done"] = 3
+    (partial / "run.json").write_text(json.dumps(run), encoding="utf-8")
+    episodes = read_jsonl(partial / "episodes.jsonl")
+    assert [row["index"] for row in episodes] == [20, 21, 22]
+    assert verify_run(partial) == []
+
+    def errors_for(name: str, rows: list[dict]) -> list[str]:
+        case_dir = tmp_path / name
+        shutil.copytree(partial, case_dir)
+        _write_jsonl(case_dir / "episodes.jsonl", rows)
+        return verify_run(case_dir)
+
+    missing_errors = errors_for(
+        "partial-missing-index", [row for row in episodes if row["index"] != 20]
+    )
+    assert any("missing expected episode index 20" in error for error in missing_errors)
+
+    completed_prefix_errors = errors_for(
+        "partial-extra-completed-prefix", [*episodes[:2], {**episodes[2], "index": 23}]
+    )
+    assert any("beyond the stopped_budget run's completed prefix 20..22" in error for error in completed_prefix_errors)
+    assert not any("outside 20..39" in error for error in completed_prefix_errors)
+
+    planned_range_errors = errors_for(
+        "partial-outside-planned-range", [*episodes[:2], {**episodes[2], "index": 40}]
+    )
+    assert any("outside 20..39" in error for error in planned_range_errors)
+
+    duplicate_errors = errors_for("partial-duplicate-index", [*episodes, episodes[0]])
+    assert any("index 20 has 2 records" in error for error in duplicate_errors)
