@@ -83,6 +83,7 @@ Run `uv run pytest -q`. The default suite blocks socket connections and removes 
 ## Interfaces
 
 - T01 freezes `simmons/types.py`, the config model, `simmons/records.py`, provider/payload/scorer registries, `simmons/cli.py`, and the seam signatures. Add optional fields or helpers freely; a breaking change needs an Orchestrator decision first.
+- `simmons.template_tags.SENDER_PROMPT_TAG` names the `<sender_prompt>` wrapper around P₁ when G sees the sender prompt.
 - `metrics.summarize(episodes)` keeps T01's frozen seam and four `{value, num, den}` rates; `metrics.summarize_with_config(episodes, config=...)` returns full §13 intervals and config-based chance levels for `simmons summarize`.
 - `SenderDebriefView` is a sixth view for the post-outcome interview. `SenderView` remains limited to the send call.
 - The episode harness validates with `roles.validate_for_tool(role, tool_input, view, request.tool)`; for watched plain messages it passes protected options only to this validator, never through `PlainSenderView` or the role request.

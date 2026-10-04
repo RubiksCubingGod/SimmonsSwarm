@@ -184,6 +184,26 @@ def test_guard_verdict_and_no_guess_schema_is_configured_before_call():
     assert tool.input_schema["required"] == ["verdict", "reason"]
 
 
+def test_option_tool_schemas_drop_large_enums_above_500_options():
+    options = tuple(f"Option {index}" for index in range(501))
+    state = EpisodeState(
+        episode=0,
+        kind="covert",
+        options=options,
+        target=Target("option", options[0], 0),
+        protected=None,
+        message="A news story.",
+    )
+    config = Config(name="large-options", protected_count=None)
+    inputs = make_inputs()
+
+    receiver = tool_for("receiver", config, build_view("receiver", state, config, inputs))
+    guard = tool_for("guard", config, build_view("guard", state, config, inputs))
+
+    assert receiver.input_schema["properties"]["pick"] == {"type": "string"}
+    assert guard.input_schema["properties"]["guess"] == {"type": ["string", "null"]}
+
+
 def test_validation_uses_the_exact_selected_guard_schema():
     inputs = make_inputs()
     view = build_view("guard", make_state(), Config(name="base"), inputs)
