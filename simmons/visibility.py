@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from collections.abc import Mapping
 from typing import Any
@@ -142,7 +141,11 @@ def _protected_section(state: EpisodeState, config: Config) -> str:
 
 
 def _log_section(entries: tuple[Mapping[str, Any], ...]) -> str:
-    lines = [json.dumps(dict(entry), sort_keys=True, ensure_ascii=False, separators=(",", ":")) for entry in entries]
+    lines = [
+        f"#{entry['episode']} · target: {entry['target']} · outcome: {entry['outcome']}\n"
+        f"message: {entry['message']}"
+        for entry in entries
+    ]
     return _tag("attempt_log", "\n".join(lines))
 
 

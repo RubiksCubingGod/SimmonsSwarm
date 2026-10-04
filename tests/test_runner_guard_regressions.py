@@ -97,6 +97,78 @@ def test_scratch_run_with_non_fake_provider_uses_runs_local(tmp_path, monkeypatc
     assert json.loads((run_dir / "run.json").read_text(encoding="utf-8"))["scratch"] is True
 
 
+def test_mixed_fake_and_real_roles_use_runs_local(tmp_path, monkeypatch):
+    """Any fake role keeps a normal run out of the committed run tree."""
+    config = _smoke_config(
+        models={
+            "default": "fake:covert",
+            "sender": "openrouter:covert",
+            "guard": "fake:random",
+        }
+    )
+    fake = FakeProvider()
+
+    class OfflineOpenRouterAdapter:
+        def build_body(self, request):
+            return fake.build_body(request)
+
+        def complete(self, request):
+            return fake.complete(request)
+
+        def check(self):
+            return ProviderStatus(
+                provider="openrouter",
+                key_present=True,
+                detail="synthetic offline adapter for mixed-provider path test",
+            )
+
+    adapter = OfflineOpenRouterAdapter()
+
+    def providers_for(resolved):
+        by_role = {
+            role: adapter if spec.provider == "openrouter" else fake
+            for role, spec in resolved.items()
+            if spec is not None
+        }
+        return ({"openrouter": adapter, "fake": fake, **by_role}, by_role)
+
+    class ZeroPriceCatalog:
+        def lookup(self, slug):
+            return ModelInfo(
+                slug=slug,
+                context_length=100_000,
+                supports_tools=True,
+                endpoint_prices=(("synthetic", 0.0, 0.0),),
+            )
+
+        def age_seconds(self):
+            return 0.0
+
+    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(tmp_path))
+    monkeypatch.setattr(runner_module, "_provider_instances", providers_for)
+    monkeypatch.setattr(runner_module, "load_catalog", lambda _path: ZeroPriceCatalog())
+
+    original_reserve = Breaker.reserve
+
+    def reserve_at_zero_price(self, attempt_id, body, spec, *, request_hash=None):
+        return original_reserve(
+            self,
+            attempt_id,
+            body,
+            replace(spec, provider="fake"),
+            request_hash=request_hash,
+        )
+
+    monkeypatch.setattr(Breaker, "reserve", reserve_at_zero_price)
+
+    code, result = run_experiment(config, repo_root=ROOT, episodes=1)
+
+    assert code == 0
+    run_dir = Path(result["run_dir"])
+    assert run_dir.is_relative_to(tmp_path / "runs-local")
+    assert not (tmp_path / "runs" / config.name).exists()
+
+
 def test_interrupt_during_episode_finishes_record_and_archive(tmp_path, monkeypatch):
     """SIGINT leaves the active episode verifiable and returns the interrupt code."""
     monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(tmp_path))

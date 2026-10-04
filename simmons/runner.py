@@ -421,16 +421,32 @@ def _write_tools_snapshot(path: Path, config: Config, plan_line: dict[str, Any],
 
 
 def _summary_record(
-    run_record: dict[str, Any], config: Config, episode_records: list[dict[str, Any]]
+    run_record: Mapping[str, Any],
+    config: Mapping[str, Any],
+    episode_records: list[dict[str, Any]],
+    episode_bytes: bytes,
 ) -> dict[str, Any]:
     metrics_value = metrics.summarize_with_config(
-        episode_records, config=config.model_dump(mode="python")
+        episode_records, config=config
     )
-    metrics_value["counts"]["planned"] = run_record["episodes_planned"]
+    metrics_value["counts"]["planned"] = int(
+        run_record.get("episodes_planned", config.get("episodes", len(episode_records)))
+    )
     metrics_value["counts"]["done"] = len(episode_records)
-    source_hash = hashlib.sha256(
-        canonical_json(episode_records).encode("utf-8")
-    ).hexdigest()
+    models = config.get("models", {})
+    labels = {}
+    for role in ("sender", "guard"):
+        prompt = config.get(f"{role}_prompt")
+        prompt_label = Path(prompt).stem if isinstance(prompt, str) else role
+        model = models.get(role, models.get("default")) if isinstance(models, Mapping) else models
+        if isinstance(model, Mapping):
+            model = model.get("model", model.get("id", ""))
+        model_label = ""
+        if isinstance(model, str) and model:
+            model_value = model
+            _, separator, provider_model = model_value.partition(":")
+            model_label = (provider_model if separator else model_value).rsplit("/", 1)[-1]
+        labels[role] = f"{prompt_label} · {model_label}" if model_label else prompt_label
     return {
         "schema": "simmons.summary/1",
         "run_id": run_record["run_id"],
@@ -438,15 +454,15 @@ def _summary_record(
         "status": run_record["status"],
         "ids": run_record.get("ids", {}),
         "matrix": run_record.get("matrix"),
-        "labels": {
-            "sender": Path(config.sender_prompt).stem,
-            "guard": Path(config.guard_prompt).stem,
+        "labels": labels,
+        "source": {
+            "episodes_sha256": hashlib.sha256(episode_bytes).hexdigest(),
+            "protocol_version": run_record.get(
+                "protocol_version", config.get("protocol_version", PROTOCOL_VERSION)
+            ),
         },
-        "source": {"episodes_sha256": source_hash, "protocol_version": PROTOCOL_VERSION},
         **metrics_value,
     }
-
-
 def _make_state(line: dict[str, Any], config: Config, inputs: Any, attempt_log: tuple[dict[str, Any], ...], *, message: str | None = None) -> EpisodeState:
     options = tuple(line["options"])
     target_index = int(line["target"])
@@ -567,7 +583,7 @@ def run_experiment(
         remaining_usd = _check_provider_limits(providers)
         inputs = load_inputs(config, repo_root=root)
         ids_source = compute_ids(config, repo_root=root)
-        local = scratch or fake or all(
+        local = scratch or fake or any(
             spec is not None and spec.provider == "fake"
             for spec in resolved.values()
             if spec is not None
@@ -848,7 +864,15 @@ def run_experiment(
         run_record["spent_usd"] = breaker.spent_usd()
         run_record["finished_at"] = _now()
         write_metadata(run_dir / "run.json", run_record)
-        write_metadata(run_dir / "summary.json", _summary_record(run_record, config, episode_records))
+        write_metadata(
+            run_dir / "summary.json",
+            _summary_record(
+                run_record,
+                config.model_dump(mode="python"),
+                episode_records,
+                (run_dir / "episodes.jsonl").read_bytes(),
+            ),
+        )
         if raw_request_path.exists():
             temporary_xz = request_xz_path.with_suffix(".jsonl.xz.tmp")
             with raw_request_path.open("rb") as source, lzma.open(temporary_xz, "wb") as destination:

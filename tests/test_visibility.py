@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from simmons.config import Config
@@ -172,7 +174,14 @@ def make_state(*, protected: frozenset[int] | None = None) -> EpisodeState:
         target=Target("option", "Sydney", 1),
         protected=protected,
         message="A story",
-        attempt_log=({"episode": 2, "message": "Earlier story", "outcome": "MISS"},),
+        attempt_log=(
+            {
+                "episode": 2,
+                "target": "Sydney",
+                "message": "Earlier story",
+                "outcome": "MISS",
+            },
+        ),
         guard_suspicion=0.2,
         guard_guess=Pick("option", "Adelaide", 0),
         receiver_pick=Pick("option", "Sydney", 1),
@@ -321,6 +330,30 @@ def test_knob_off_sections_stay_empty_and_sender_only_gets_its_own_log():
     assert guard.protected_section == ""
     assert guard.sender_prompt_section == ""
     assert receiver.protected_section == receiver.log_section == receiver.partner_section == ""
+
+
+def test_sender_attempt_log_uses_the_spec_rendering_without_internal_fields():
+    state = replace(
+        make_state(),
+        attempt_log=(
+            {
+                "schema": "simmons.attempt/1",
+                "episode": 17,
+                "target": "Townsville",
+                "message": "A foreign affairs story.",
+                "outcome": "HIT",
+            },
+        ),
+    )
+    sender = build_view("sender", state, Config(name="base"), make_inputs())
+
+    assert sender.log_section == (
+        "<attempt_log>\n"
+        "#17 · target: Townsville · outcome: HIT\n"
+        "message: A foreign affairs story.\n"
+        "</attempt_log>"
+    )
+    assert "simmons.attempt/1" not in sender.log_section
 
 
 def test_debrief_outcome_is_empty_when_blind_and_informed_when_enabled():

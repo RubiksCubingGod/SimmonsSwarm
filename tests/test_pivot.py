@@ -38,7 +38,7 @@ def test_split_arena_resolves_mixed_frame_and_pools_rates() -> None:
     assert report["slices"][1]["paired"]["status"] == "paired"
     assert len(report["slices"][1]["frame"]["held"]) > 30
     cell = next(item for item in report["slices"][1]["cells"] if item["hit_rate"]["den"])
-    assert cell["hit_rate"]["num"] == 8
+    assert cell["hit_rate"]["num"] == 5
     assert cell["hit_rate"]["den"] == 14
     assert cell["n_covert"] == 14
     assert cell["catch_rate"]["den"] == 14
@@ -58,7 +58,7 @@ def test_cell_pools_runs_with_the_same_config() -> None:
     cell = report["slices"][0]["cells"][0]
     assert cell["n_runs"] == 2
     assert cell["n_covert"] == 28
-    assert cell["hit_rate"]["num"] == 16
+    assert cell["hit_rate"]["num"] == 10
     assert cell["hit_rate"]["den"] == 28
 
 

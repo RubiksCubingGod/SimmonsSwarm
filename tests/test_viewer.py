@@ -250,6 +250,27 @@ def test_episode_page_shows_matching_guard_request_and_catch_receiver_state(
     assert "Not called: the guard blocked the message." in page
 
 
+def test_episode_labels_use_recorded_indices_everywhere(tmp_path: Path) -> None:
+    run = _copy_run(BASE_RUN, tmp_path / "run")
+    generate(run)
+
+    run_page = (run / "view" / "index.html").read_text(encoding="utf-8")
+    episode_path = run / "view" / "episode-000003.html"
+    episode_page = episode_path.read_text(encoding="utf-8")
+    episode_data = _page_data(episode_path)
+
+    assert episode_data["episode"]["index"] == 3
+    assert "#${item.index}" in run_page
+    assert "#${item.index+1}" not in run_page
+    assert "<title>Episode 3 · Simmons episode viewer</title>" in episode_page
+    assert "Episode ${Number(e.index)}" in episode_page
+    assert "Episode ${Number(e.index)+1}" not in episode_page
+    assert "#${item.episode} · ${item.outcome}" in episode_page
+    assert "#${item.episode+1} · ${item.outcome}" not in episode_page
+    assert episode_data["attempt_log"]
+    assert episode_data["attempt_log"][0]["episode"] == 0
+
+
 def test_request_replay_uses_the_run_tool_snapshot(tmp_path: Path, monkeypatch) -> None:
     run = _copy_run(BASE_RUN, tmp_path / "run")
     current_request_for = viewer.request_for
