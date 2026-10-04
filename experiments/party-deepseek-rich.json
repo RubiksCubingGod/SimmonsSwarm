@@ -12,7 +12,10 @@
   "payload": "text",
   "scorer": "llm_judge",
   "models": {
-    "default": "openrouter:deepseek/deepseek-v4.1-flash",
+    "default": {
+      "model": "openrouter:deepseek/deepseek-v4.1-flash",
+      "max_tokens": 32000
+    },
     "judge": "openrouter:google/gemini-3.1-flash-lite"
   },
   "guard_exposes": true,
