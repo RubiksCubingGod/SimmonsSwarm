@@ -371,6 +371,9 @@ def test_live_reference_run() -> None:
 
 
 @pytest.mark.live
+@pytest.mark.skip(
+    reason="Deferred to v1.1: sender exit-interview recall probes pending the debrief-default decision."
+)
 def test_live_sender_recall_per_family() -> None:
     os.environ.pop("SIMMONS_DISABLE_DOTENV", None)
     load_env(ROOT)

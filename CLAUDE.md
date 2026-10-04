@@ -112,7 +112,7 @@ Set `OPENROUTER_API_KEY` in the ignored root `.env`. The runner checks `GET /api
 
 ### Choosing models
 
-Choose a current tool-capable model in the cached OpenRouter catalog, and pin a provider when a route-specific behavior matters. Claude 5 reasoning can be encrypted; whether OpenRouter forwards a requested summary is unverified until the M3 live round-trip probe. A Claude sender-debrief `content_filter` is recorded as a refusal; do not retry it with a different prompt or route. The `sender_debrief` default remains `blind` until Atin rules.
+Choose a current tool-capable model in the cached OpenRouter catalog, and pin a provider when a route-specific behavior matters. In the T08 live send probe, OpenRouter's `anthropic/claude-sonnet-5.5` response had no `reasoning_details` with `max_tokens: 1024`, `reasoning.effort: high` and `reasoning.summary: auto`; the exit interview was not attempted, so whether OpenRouter forwards Claude's summarized thinking remains unverified. A Claude sender-debrief `content_filter` is recorded as a refusal; do not retry it with a different prompt or route. The `sender_debrief` default remains `blind` until Atin rules.
 
 Personal tests outside `tests/` are excluded from default collection. Run one by path with `uv run pytest -q path/to/test_file.py`.
 
