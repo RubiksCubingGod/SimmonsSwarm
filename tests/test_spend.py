@@ -338,15 +338,15 @@ def test_estimate_counts_sender_exit_interview_only_when_enabled():
     debrief_body = spend._estimate_body("sender_debrief", sender, blind_config, plan[0], None, 0)
     debrief_input_tokens = spend._estimate_input_tokens(debrief_body)
     input_price, output_price = spend._prices_for(sender)
-    expected_debrief_cost = float(
-        (
-            Decimal(debrief_input_tokens) * input_price
-            + Decimal(spend._ROLE_OUTPUT_TOKENS["sender_debrief"]) * output_price
-        )
+    output_tokens, _ = spend._typical_output_tokens("sender_debrief", sender, None)
+    one_call = (
+        (Decimal(debrief_input_tokens) * input_price + Decimal(output_tokens) * output_price)
         / spend._MILLION
+        * spend._ROLE_RETRY_FACTOR["sender_debrief"]
     )
 
-    assert with_debrief - off == pytest.approx(expected_debrief_cost)
+    # One interview per covert episode plus the two preflight reasoning-replay calls.
+    assert with_debrief - off == pytest.approx(float(one_call * 3))
     assert informed > off
 
 
@@ -414,7 +414,12 @@ def test_plain_episode_estimates_include_receiver_calls():
         plan = [{"index": 0, "kind": kind, "options": ["Canberra", "Sydney"], "protected": [0], "target": 1}]
         cost_with_receiver = spend.estimate(priced_receiver, plan)
         cost_without_receiver = spend.estimate(zero_receiver, plan)
-        assert cost_with_receiver - cost_without_receiver == pytest.approx(0.01)
+        receiver_tokens = spend._ROLE_OUTPUT_TOKENS["receiver"]
+        retry = float(spend._ROLE_RETRY_FACTOR["receiver"])
+        # The episode's receiver call plus the receiver preflight probe.
+        assert cost_with_receiver - cost_without_receiver == pytest.approx(
+            2 * receiver_tokens * 100 / 1_000_000 * retry
+        )
 
 
 def test_receiver_estimate_includes_shared_sender_prompt():
@@ -481,3 +486,92 @@ def test_between_waves_zero_credit_trips_and_positive_credit_limits_future_reser
     assert breaker.tripped is not None
     with pytest.raises(spend.BreakerTripped):
         breaker.reserve("a2", BODY, _spec())
+
+
+def _reasoning_catalog(*parameters: str):
+    class _Catalog:
+        def lookup(self, slug: str):
+            return ModelInfo(
+                slug=slug,
+                context_length=200_000,
+                supports_tools=True,
+                endpoint_prices=(("vendor", 2.0, 10.0),),
+                supported_parameters=frozenset({"tools", "tool_choice", "max_tokens", *parameters}),
+            )
+
+    return _Catalog()
+
+
+def test_estimate_breakdown_pins_preflight_reasoning_and_retry_shape():
+    config = Config(
+        name="estimate-shape",
+        sender_debrief="off",
+        models={"default": ModelSpecConfig(model="openrouter:vendor/model", max_tokens=16_000)},
+    )
+    plan = _covert_plan() + [
+        {"index": 1, "kind": "plain_allowed", "options": ["Canberra", "Sydney"], "protected": None, "target": 0}
+    ]
+
+    detail = spend.estimate_breakdown(config, plan, catalog=_reasoning_catalog("reasoning"))
+
+    assert set(detail) == {
+        "estimate_usd",
+        "episodes_usd",
+        "preflight_usd",
+        "worst_case_usd",
+        "calls",
+        "by_role",
+        "assumptions",
+    }
+    # Preflight probes sender, plain sender, guard and receiver once each.
+    assert detail["calls"] == {"episodes": 6, "preflight": 4}
+    assert detail["preflight_usd"] > 0
+    assert detail["estimate_usd"] == pytest.approx(detail["episodes_usd"] + detail["preflight_usd"])
+    assert sum(detail["by_role"].values()) == pytest.approx(detail["estimate_usd"])
+    assert detail["worst_case_usd"] > detail["estimate_usd"]
+    assert spend.estimate(config, plan, catalog=_reasoning_catalog("reasoning")) == detail["estimate_usd"]
+
+    per_call = detail["assumptions"]["per_call"]
+    sender = per_call["sender"]
+    assert sender["reasoning_tokens"] == spend._ROLE_REASONING_TOKENS["sender"]
+    assert sender["output_tokens"] == spend._ROLE_OUTPUT_TOKENS["sender"] + spend._ROLE_REASONING_TOKENS["sender"]
+    assert sender["retry_factor"] == 1.5
+    assert per_call["guard"]["retry_factor"] == 1.2
+
+    # Sender cost: typical output with reasoning, at expected retries, in both phases.
+    sender_spec = spend._role_models(config)["sender"]
+    body = spend._estimate_body("sender", sender_spec, config, plan[0], None, 0)
+    one_sender = (spend._estimate_input_tokens(body) * 2.0 + sender["output_tokens"] * 10.0) / 1_000_000 * 1.5
+    assert detail["by_role"]["sender"] == pytest.approx(2 * one_sender)
+
+    without_reasoning = spend.estimate_breakdown(config, plan, catalog=_reasoning_catalog())
+    assert without_reasoning["assumptions"]["per_call"]["sender"]["reasoning_tokens"] == 0
+    assert without_reasoning["estimate_usd"] < detail["estimate_usd"]
+
+
+def test_estimate_uses_a_configured_reasoning_budget_and_caps_at_max_tokens():
+    budgeted = ModelSpec("openrouter", "vendor/model", None, 16_000, {"reasoning": {"max_tokens": 2_000}})
+    capped = ModelSpec("openrouter", "vendor/model", None, 1_000, {})
+    disabled = ModelSpec("openrouter", "vendor/model", None, 16_000, {"reasoning": {"effort": "none"}})
+    catalog = _reasoning_catalog("reasoning")
+
+    assert spend._typical_output_tokens("sender", budgeted, catalog) == (2_600, 2_000)
+    assert spend._typical_output_tokens("sender", capped, catalog) == (1_000, 1_000)
+    assert spend._typical_output_tokens("sender", disabled, catalog) == (600, 0)
+
+
+def test_worst_case_retries_every_call_to_the_attempt_cap():
+    from simmons.episode import _ATTEMPT_LIMIT
+
+    assert spend._ATTEMPT_CAP == _ATTEMPT_LIMIT
+    config = _priced_config(debrief="off")
+    plan = _covert_plan()
+    detail = spend.estimate_breakdown(config, plan)
+    sender = spend._role_models(config)["sender"]
+    expected = 0.0
+    for phase_role in ("sender", "guard", "receiver"):
+        body = spend._estimate_body(phase_role, sender, config, plan[0], None, 0)
+        tokens = spend._estimate_input_tokens(body)
+        expected += (tokens + sender.max_tokens) * 1.0 * _ATTEMPT_LIMIT
+    # Each role runs once as a preflight probe and once in the episode.
+    assert detail["worst_case_usd"] == pytest.approx(2 * expected)

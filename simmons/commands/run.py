@@ -64,8 +64,34 @@ def _print_result(result: dict[str, Any]) -> None:
         print(f"{status}:{outcomes_text}{spend_text} {result['run_dir']}")
     elif "error" in result:
         print(f"{status}: {result['error']}")
+    elif status == "dry_run" and isinstance(result.get("estimate"), dict):
+        _print_estimate(result)
     else:
         print(json.dumps(result, sort_keys=True))
+
+
+def _print_estimate(result: dict[str, Any]) -> None:
+    detail = result["estimate"]
+    kinds = " ".join(f"{name}={count}" for name, count in sorted(result.get("kinds", {}).items()))
+    cap = result.get("cap_usd")
+    cap_text = f" · run cap ${cap:.2f}" if isinstance(cap, (int, float)) else ""
+    calls = detail.get("calls", {})
+    print(f"dry_run: {result.get('experiment')} · {result.get('episodes')} episodes ({kinds})")
+    print(
+        f"estimate ${detail['estimate_usd']:.4f}{cap_text}"
+        f" = episodes ${detail['episodes_usd']:.4f} ({calls.get('episodes', 0)} calls)"
+        f" + preflight ${detail['preflight_usd']:.4f} ({calls.get('preflight', 0)} calls)"
+    )
+    assumptions = detail.get("assumptions", {})
+    print(f"worst case ${detail['worst_case_usd']:.4f}: {assumptions.get('worst_case', '')}")
+    print("assumed per call (output includes reasoning):")
+    for role, item in assumptions.get("per_call", {}).items():
+        print(
+            f"  {role:<15} {item['model']}: {item['output_tokens']:,} output tokens"
+            f" ({item['reasoning_tokens']:,} reasoning, max_tokens {item['max_tokens']:,})"
+            f" × {item['retry_factor']:g} attempts"
+        )
+    print(f"input tokens: {assumptions.get('input_tokens')}; prices: {assumptions.get('prices')}")
 
 
 __all__ = ["register"]

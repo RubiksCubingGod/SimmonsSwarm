@@ -481,3 +481,85 @@ def test_dotenv_can_be_disabled(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     load_env(tmp_path)
     assert "OPENROUTER_API_KEY" not in os.environ
+
+
+LUNA = "openai/gpt-6-luna"
+
+
+def _luna_catalog():
+    # Recorded 2026-10-04: OpenAI and Bedrock endpoints list max_tokens, the
+    # three Azure endpoints list only max_completion_tokens, Bedrock omits seed.
+    return load_catalog(FIXTURES / "gpt-6-luna-catalog.json")
+
+
+def test_luna_catalog_keeps_per_endpoint_parameters():
+    from simmons.catalog import route_parameters
+
+    info = _luna_catalog().lookup(LUNA)
+    assert info is not None
+    assert "max_tokens" not in info.supported_parameters
+    assert "max_completion_tokens" not in info.supported_parameters
+    assert len(info.endpoint_parameters) == 7
+
+    every, some = route_parameters(info)
+    assert {"max_tokens", "max_completion_tokens"} <= some
+    azure_every, _ = route_parameters(info, {"only": ["azure"]})
+    assert "max_completion_tokens" in azure_every and "max_tokens" not in azure_every
+    openai_every, _ = route_parameters(info, {"order": ["openai"]})
+    assert {"max_tokens", "seed"} <= openai_every
+    no_azure, _ = route_parameters(info, {"ignore": ["azure"]})
+    assert "max_tokens" in no_azure
+
+
+def test_luna_unpinned_sends_max_tokens_and_requires_parameters():
+    captured: list[httpx2.Request] = []
+    provider, http_client = _provider(
+        LUNA,
+        body=_recorded("gpt-tool-call.json"),
+        catalog=_luna_catalog(),
+        on_request=captured.append,
+    )
+    try:
+        request = _request(LUNA, temperature=None, tool=_tool("send_message"))
+        body = provider.build_body(request)
+        provider.complete(request)
+    finally:
+        http_client.close()
+
+    assert body["max_tokens"] == 16000
+    assert "max_completion_tokens" not in body
+    assert body["provider"]["require_parameters"] is True
+    sent = json.loads(captured[0].content)
+    assert sent["max_tokens"] == 16000
+    assert sent["provider"]["require_parameters"] is True
+
+
+def test_luna_pinned_routes_use_only_their_endpoints_parameters():
+    provider, http_client = _provider(LUNA, catalog=_luna_catalog())
+    try:
+        azure = provider.build_body(
+            _request(LUNA, temperature=None, params={"provider": {"only": ["azure"]}})
+        )
+        openai_seed = provider.build_body(
+            _request(LUNA, temperature=None, params={"seed": 7, "provider": {"only": ["openai"]}})
+        )
+        with pytest.raises(PermanentError, match="seed"):
+            provider.build_body(_request(LUNA, temperature=None, params={"seed": 7}))
+    finally:
+        http_client.close()
+
+    assert azure["max_completion_tokens"] == 16000 and "max_tokens" not in azure
+    assert azure["provider"]["only"] == ["azure"]
+    assert openai_seed["max_tokens"] == 16000 and openai_seed["seed"] == 7
+
+
+def test_luna_validation_respects_provider_pins():
+    from simmons.catalog import check_models
+
+    catalog = _luna_catalog()
+    pinned = ModelSpec("openrouter", LUNA, None, 16000, {"seed": 7, "provider": {"only": ["openai"]}})
+    unpinned = ModelSpec("openrouter", LUNA, None, 16000, {"seed": 7})
+
+    assert check_models({"sender": pinned}, catalog) == ()
+    with pytest.raises(ValueError, match="params.seed"):
+        check_models({"sender": unpinned}, catalog)

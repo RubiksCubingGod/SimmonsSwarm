@@ -22,14 +22,39 @@ from .types import BreakerTripped, Catalog, ModelSpec, Reservation, RoleResponse
 
 RUN_CEILING_USD = 20.0
 _DEFAULT_MODEL = "openrouter:anthropic/claude-sonnet-5.5"
+# Typical visible output per call (tool-call JSON included), measured on the
+# first real runs (2026-10-04): a 2,000-character story is about 500 tokens.
 _ROLE_OUTPUT_TOKENS = {
-    "sender": 300,
-    "plain_sender": 300,
-    "guard": 200,
-    "receiver": 100,
+    "sender": 600,
+    "plain_sender": 600,
+    "guard": 250,
+    "receiver": 200,
     "judge": 100,
-    "sender_debrief": 400,
+    "sender_debrief": 600,
 }
+# Typical hidden reasoning per call for a model that can reason and has no
+# configured budget. Gemini 3.8 Flash spent 4-6k on sender calls and up to 2k
+# on receiver calls; Claude Sonnet 5.5 spent 0.4-1k.
+_ROLE_REASONING_TOKENS = {
+    "sender": 5_000,
+    "plain_sender": 1_000,
+    "guard": 300,
+    "receiver": 800,
+    "judge": 200,
+    "sender_debrief": 1_000,
+}
+# Expected provider attempts per call. Sender roles retry on refusals, prose
+# without the tool and over-long messages; one Claude sender call took 6.
+_ROLE_RETRY_FACTOR = {
+    "sender": Decimal("1.5"),
+    "plain_sender": Decimal("1.5"),
+    "guard": Decimal("1.2"),
+    "receiver": Decimal("1.2"),
+    "judge": Decimal("1.2"),
+    "sender_debrief": Decimal("1.2"),
+}
+# Mirrors episode._ATTEMPT_LIMIT, the per-call attempt budget.
+_ATTEMPT_CAP = 6
 _LOG_VALUE_CHARS = {
     "target": 40,
     "message": 1200,
@@ -623,26 +648,89 @@ def _estimate_input_tokens(body: Mapping[str, Any]) -> int:
     return math.ceil(len(canonical_json(body)) / 4)
 
 
-def estimate(
+def _may_reason(spec: ModelSpec, catalog: Catalog | None) -> bool:
+    reasoning = spec.params.get("reasoning")
+    if isinstance(reasoning, Mapping) and (
+        reasoning.get("enabled") is False or reasoning.get("effort") == "none"
+    ):
+        return False
+    if spec.provider == "fake":
+        return False
+    if catalog is None:
+        return True
+    info = catalog.lookup(spec.model)
+    if info is None:
+        return True
+    return bool({"reasoning", "include_reasoning"} & set(info.supported_parameters))
+
+
+def _typical_output_tokens(role: str, spec: ModelSpec, catalog: Catalog | None) -> tuple[int, int]:
+    """Return (output tokens, of which reasoning) for one typical call."""
+    budget = _reasoning_budget(spec)
+    if budget:
+        reasoning = budget
+    elif _may_reason(spec, catalog):
+        reasoning = _ROLE_REASONING_TOKENS[role]
+    else:
+        reasoning = 0
+    ceiling = spec.max_tokens + budget
+    total = min(_ROLE_OUTPUT_TOKENS[role] + reasoning, ceiling)
+    return total, min(reasoning, total)
+
+
+def _preflight_calls(config: Config, plan: Sequence[PlanRecord]) -> list[tuple[str, PlanRecord]]:
+    """Mirror runner._preflight: one probe per used role, plus the reasoning replay pair."""
+    role_line: dict[str, PlanRecord] = {}
+    for line in plan:
+        role = "sender" if line.get("kind") in {"covert", "control"} else "plain_sender"
+        role_line.setdefault(role, line)
+    role_line.setdefault("guard", plan[0])
+    role_line.setdefault("receiver", plan[0])
+    calls = [
+        (role, role_line[role])
+        for role in ("sender", "plain_sender", "guard", "receiver")
+        if role in role_line
+    ]
+    if config.sender_debrief != "off" and "sender" in role_line:
+        calls.extend([("sender_debrief", role_line["sender"])] * 2)
+    return calls
+
+
+def estimate_breakdown(
     config: Config,
     plan: Sequence[PlanRecord],
     *,
     inputs: Any = None,
     catalog: Catalog | None = None,
-) -> float:
-    """Estimate the typical provider cost for the supplied episode plan."""
+) -> dict[str, Any]:
+    """Estimate a run's provider cost, with the assumptions behind the figure.
+
+    ``estimate_usd`` is the expected cost with typical output (reasoning
+    included), expected retries and the preflight probes, priced at each
+    model's highest catalog endpoint price. ``worst_case_usd`` retries every
+    call to the attempt cap at max_tokens plus any reasoning budget.
+    """
+    empty = {
+        "estimate_usd": 0.0,
+        "episodes_usd": 0.0,
+        "preflight_usd": 0.0,
+        "worst_case_usd": 0.0,
+        "calls": {"episodes": 0, "preflight": 0},
+        "by_role": {},
+        "assumptions": {},
+    }
     if not plan:
-        return 0.0
+        return empty
     specs = _role_models(config)
-    totals = Decimal(0)
     kinds = {str(line.get("kind", "")) for line in plan}
     if not kinds <= {"covert", "control", "plain_allowed", "plain_protected"}:
         raise ValueError("plan contains an unknown episode kind")
     if config.scorer != "exact_match" and specs.get("judge") is None:
         raise ValueError("a model judge is required to estimate this scorer")
 
-    sender_model = specs.get("sender")
-    debrief_model = sender_model
+    calls: list[tuple[str, str, PlanRecord, int]] = [
+        ("preflight", role, line, 0) for role, line in _preflight_calls(config, plan)
+    ]
     for position, line in enumerate(plan):
         kind = str(line["kind"])
         wave = max(1, int(config.wave_size))
@@ -658,22 +746,76 @@ def estimate(
             roles = ["plain_sender", "guard", "receiver"]
         if config.scorer != "exact_match" and specs.get("judge") is not None:
             roles.append("judge")
-        for role in roles:
-            model = debrief_model if role == "sender_debrief" else specs.get(role)
-            if model is None:
-                raise ValueError(f"no model is configured for role {role!r}")
-            input_tokens = _estimate_input_tokens(
-                _estimate_body(role, model, config, line, inputs, history_count)
-            )
-            output_tokens = _ROLE_OUTPUT_TOKENS[role]
-            # OpenRouter's adapter puts the maximum catalog endpoint prices in
-            # provider.max_price. Keep the estimate on that same ceiling.
-            input_price, output_price = _prices_for(model, catalog, respect_routes=False)
-            totals += (
-                Decimal(input_tokens) * input_price
-                + Decimal(output_tokens) * output_price
-            ) / _MILLION
-    return float(totals)
+        calls.extend(("episodes", role, line, history_count) for role in roles)
+
+    expected = {"episodes": Decimal(0), "preflight": Decimal(0)}
+    worst = Decimal(0)
+    by_role: dict[str, Decimal] = {}
+    output_assumptions: dict[str, dict[str, Any]] = {}
+    for phase, role, line, history_count in calls:
+        model = specs.get("sender") if role == "sender_debrief" else specs.get(role)
+        if model is None:
+            raise ValueError(f"no model is configured for role {role!r}")
+        input_tokens = _estimate_input_tokens(
+            _estimate_body(role, model, config, line, inputs, history_count)
+        )
+        output_tokens, reasoning_tokens = _typical_output_tokens(role, model, catalog)
+        # OpenRouter's adapter puts the maximum catalog endpoint prices in
+        # provider.max_price. Keep the estimate on that same ceiling.
+        input_price, output_price = _prices_for(model, catalog, respect_routes=False)
+        typical = (Decimal(input_tokens) * input_price + Decimal(output_tokens) * output_price) / _MILLION
+        cost = typical * _ROLE_RETRY_FACTOR[role]
+        expected[phase] += cost
+        by_role[role] = by_role.get(role, Decimal(0)) + cost
+        ceiling = model.max_tokens + _reasoning_budget(model)
+        worst += (
+            (Decimal(input_tokens) * input_price + Decimal(ceiling) * output_price)
+            / _MILLION
+            * _ATTEMPT_CAP
+        )
+        output_assumptions.setdefault(
+            role,
+            {
+                "model": f"{model.provider}:{model.model}",
+                "output_tokens": output_tokens,
+                "reasoning_tokens": reasoning_tokens,
+                "max_tokens": model.max_tokens,
+                "retry_factor": float(_ROLE_RETRY_FACTOR[role]),
+            },
+        )
+
+    total = expected["episodes"] + expected["preflight"]
+    return {
+        "estimate_usd": float(total),
+        "episodes_usd": float(expected["episodes"]),
+        "preflight_usd": float(expected["preflight"]),
+        "worst_case_usd": float(worst),
+        "calls": {
+            "episodes": sum(1 for call in calls if call[0] == "episodes"),
+            "preflight": sum(1 for call in calls if call[0] == "preflight"),
+        },
+        "by_role": {role: float(value) for role, value in sorted(by_role.items())},
+        "assumptions": {
+            "per_call": output_assumptions,
+            "input_tokens": "request characters / 4",
+            "prices": "highest catalog endpoint price for each model",
+            "worst_case": (
+                f"every call retried to the {_ATTEMPT_CAP}-attempt cap, "
+                "each attempt at max_tokens plus any reasoning budget"
+            ),
+        },
+    }
+
+
+def estimate(
+    config: Config,
+    plan: Sequence[PlanRecord],
+    *,
+    inputs: Any = None,
+    catalog: Catalog | None = None,
+) -> float:
+    """Return the expected run cost, including preflight probes and retries."""
+    return estimate_breakdown(config, plan, inputs=inputs, catalog=catalog)["estimate_usd"]
 
 
 def check_before_run(
@@ -716,5 +858,6 @@ __all__ = [
     "between_waves",
     "check_before_run",
     "estimate",
+    "estimate_breakdown",
     "run_cap",
 ]

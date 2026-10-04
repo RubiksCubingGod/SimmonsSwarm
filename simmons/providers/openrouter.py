@@ -15,6 +15,7 @@ from typing import Any
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 from .base import register_provider
+from ..catalog import route_parameters
 from ..env import load_env
 from ..types import (
     BudgetError,
@@ -309,7 +310,10 @@ class OpenRouterProvider:
         if unknown_provider:
             raise PermanentError(f"unsupported OpenRouter provider parameter(s): {', '.join(unknown_provider)}")
 
-        supports = info.supported_parameters
+        # Intersect only the endpoints this request can route to; a parameter
+        # some of them lack is still safe to send because require_parameters
+        # (always set below) keeps OpenRouter off endpoints that cannot honour it.
+        supports, supported_somewhere = route_parameters(info, provider_params)
         required_params = {"tools", "tool_choice"}
         missing_required = sorted(required_params - supports)
         if missing_required:
@@ -318,9 +322,18 @@ class OpenRouterProvider:
                 f"{', '.join(missing_required)}"
             )
 
-        max_token_field = "max_tokens" if "max_tokens" in supports else None
-        if max_token_field is None and "max_completion_tokens" in supports:
-            max_token_field = "max_completion_tokens"
+        max_token_field = next(
+            (field for field in ("max_tokens", "max_completion_tokens") if field in supports),
+            None,
+        )
+        if max_token_field is None:
+            # Mixed endpoints (gpt-6-luna: Azure lists only max_completion_tokens).
+            # Send the field some routed endpoints accept; require_parameters
+            # restricts routing to them.
+            max_token_field = next(
+                (field for field in ("max_tokens", "max_completion_tokens") if field in supported_somewhere),
+                None,
+            )
         if max_token_field is None:
             raise PermanentError(f"OpenRouter model {request.model.model} does not support a token limit")
 

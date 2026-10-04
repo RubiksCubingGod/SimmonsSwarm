@@ -198,6 +198,9 @@ class ModelInfo:
     supports_tools: bool
     endpoint_prices: tuple[tuple[str, float, float], ...]
     supported_parameters: frozenset[str] = frozenset()
+    # Per-endpoint (host tag, supported parameters); supported_parameters is
+    # their intersection across every endpoint.
+    endpoint_parameters: tuple[tuple[str, frozenset[str]], ...] = ()
 
 
 class Catalog(Protocol):
