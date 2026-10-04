@@ -346,6 +346,42 @@ def test_openrouter_param_support_is_checked_against_cached_endpoints(tmp_path, 
     assert "does not support this parameter" in report.errors[0]["message"]
 
 
+def test_cli_rejects_openrouter_model_when_projected_request_exceeds_context(tmp_path):
+    cache = tmp_path / ".simmons" / "openrouter-catalog.json"
+    cache.parent.mkdir(parents=True)
+    catalog = json.loads(
+        (ROOT / "tests" / "fixtures" / "openrouter" / "catalog.json").read_text(encoding="utf-8")
+    )
+    sonnet = next(
+        item for item in catalog["models"]
+        if item["model"]["id"] == "anthropic/claude-sonnet-5.5"
+    )
+    sonnet["model"]["context_length"] = 8192
+    for endpoint in sonnet["endpoints"]:
+        endpoint["context_length"] = 8192
+    cache.write_text(json.dumps(catalog), encoding="utf-8")
+    config = _config_for_root(
+        tmp_path,
+        name="context-overflow",
+        models={
+            "default": "fake:covert",
+            "sender": {"model": "anthropic/claude-sonnet-5.5", "max_tokens": 16000},
+        },
+    )
+    _write_experiment(tmp_path, config)
+
+    result = _cli(tmp_path, "validate", "experiments/context-overflow.json", "--json")
+
+    payload = json.loads(result.stdout)
+    errors = payload["experiments"][0]["errors"]
+    assert result.returncode == 2
+    assert errors[0]["path"] == "models.sender"
+    assert "request cannot fit model context" in errors[0]["message"]
+    assert "projected input" in errors[0]["message"]
+    projected = errors[0]["message"].split("projected input ", 1)[1].split(" +", 1)[0]
+    assert projected.isdigit() and int(projected) > 0
+
+
 def test_missing_catalog_reports_structural_only_mode(tmp_path, monkeypatch):
     _patch_validation_seams(monkeypatch)
     config = _config_for_root(

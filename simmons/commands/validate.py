@@ -5,19 +5,26 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from difflib import get_close_matches
 from pathlib import Path
+from string import Template
+from types import SimpleNamespace
 from typing import Any
 
 from pydantic import ValidationError
 
 from ..catalog import check_models, load_catalog
 from ..config import Config, ModelSpecConfig, model_param_issues, resolve_models
+from ..contracts import SEND_MESSAGE_TOOL_NAME
 from ..inputs import load
+from ..records import canonical_json
+from ..roles import request_for
 from ..template_tags import SENDER_DEBRIEF_TEMPLATE_NAME
+from ..types import EpisodeState, Pick, Target, TextPart
 
 _MODEL_ROLES = {"sender", "receiver", "guard", "plain_sender", "judge", "default"}
 _BOOL_FIELDS = {
@@ -279,20 +286,27 @@ def validate_experiment(path: Path, display_path: str, root: Path) -> _Experimen
         return report
 
     try:
+        _check_templates(config, report.inputs)
+    except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
+        _add_from_message(report.errors, str(exc), "templates")
+        return report
+
+    try:
         catalog = load_catalog(root / ".simmons" / "openrouter-catalog.json")
+        configured_models = {role: model for role, model in models.items() if model is not None}
+        projected_input_tokens = (
+            _projected_input_tokens(config, report.inputs, models, needs_judge=scorer_type.needs_model)
+            if catalog.age_seconds() is not None
+            else None
+        )
         notices = check_models(
-            {role: model for role, model in models.items() if model is not None},
+            configured_models,
             catalog,
+            projected_input_tokens=projected_input_tokens,
         )
         report.warnings.extend(notices)
     except (OSError, ValueError, RuntimeError) as exc:
         _add_from_message(report.errors, str(exc), "models")
-        return report
-
-    try:
-        _check_templates(config, report.inputs)
-    except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
-        _add_from_message(report.errors, str(exc), "templates")
         return report
 
     if config.purpose == "eval":
@@ -307,6 +321,214 @@ def validate_experiment(path: Path, display_path: str, root: Path) -> _Experimen
     except (OSError, UnicodeError, ValueError) as exc:
         _add_from_message(report.errors, str(exc), "config_hash")
     return report
+
+
+def _projected_input_tokens(
+    config: Config,
+    inputs: Any,
+    models: Mapping[str, Any],
+    *,
+    needs_judge: bool,
+) -> dict[str, int]:
+    """Estimate the largest rendered request for each model role.
+
+    The estimate uses the real role templates and views, the longest possible
+    option draw, max-length messages, and the largest history available in one
+    run. Sender debrief replays the send turn, so its larger request also counts
+    against the sender model's context.
+    """
+    pool = tuple(inputs.option_set.options)
+    option_count = min(config.options_per_episode or len(pool), len(pool))
+    options = tuple(sorted(pool, key=lambda value: (-len(value), value))[:option_count])
+    target = Target(payload=config.payload, value=options[0], index=0)
+    pick = Pick(payload=config.payload, value=options[0], index=0)
+    protected = (
+        frozenset(range(config.protected_count))
+        if config.protected_count is not None
+        else None
+    )
+
+    history_count = max(0, config.episodes - 1)
+    if config.log_window is not None:
+        history_count = min(history_count, config.log_window)
+    if not config.log_records:
+        history_count = 0
+    longest_option = max(pool, key=len)
+    log_values = {
+        "target": longest_option,
+        "message": "x" * config.max_message_chars,
+        "outcome": "CATCH",
+        "receiver_pick": longest_option,
+        "guard_suspicion": 0.9999999999999999,
+        "guard_guess": longest_option,
+    }
+    log_entry = {name: log_values[name] for name in config.log_records}
+    log_entry_line = json.dumps(log_entry, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+    sender_spec = models.get("sender")
+    assistant_message: dict[str, Any] = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "projected-send-tool-call",
+                "type": "function",
+                "function": {
+                    "name": SEND_MESSAGE_TOOL_NAME,
+                    "arguments": json.dumps(
+                        {"message": "x" * config.max_message_chars},
+                        separators=(",", ":"),
+                    ),
+                },
+            }
+        ],
+    }
+    if sender_spec is not None:
+        # A send response can carry reasoning back into the debrief request.
+        message_tokens = math.ceil(config.max_message_chars / 4) + 64
+        reasoning_tokens = max(0, sender_spec.max_tokens - message_tokens)
+        assistant_message["reasoning_details"] = [
+            {"type": "reasoning.text", "text": "x" * (reasoning_tokens * 4)}
+        ]
+
+    state = EpisodeState(
+        episode=max(0, config.episodes - 1),
+        kind="covert",
+        options=options,
+        target=target,
+        protected=protected,
+        message="x" * config.max_message_chars,
+        attempt_log=(),
+        guard_suspicion=1.0,
+        guard_guess=pick,
+        receiver_pick=pick,
+        outcome="HIT",
+        sender_response=(
+            SimpleNamespace(
+                assistant_message=assistant_message,
+                tool_call_id="projected-send-tool-call",
+            )
+            if sender_spec is not None
+            else None
+        ),
+    )
+
+    roles_by_model: dict[str, list[str]] = {
+        "guard": ["guard"],
+        "receiver": ["receiver"],
+    }
+    if config.plain_sender_rate > 0:
+        roles_by_model["plain_sender"] = ["plain_sender"]
+    if config.plain_sender_rate < 1:
+        sender_roles = ["sender"]
+        if config.sender_debrief != "off":
+            sender_roles.append("sender_debrief")
+        roles_by_model["sender"] = sender_roles
+    if needs_judge:
+        roles_by_model["judge"] = ["judge"]
+
+    projections: dict[str, int] = {}
+    for model_role, request_roles in roles_by_model.items():
+        model = models.get(model_role)
+        if model is None or model.provider != "openrouter":
+            continue
+        projections[model_role] = max(
+            _request_input_tokens(
+                request_for(role, state, config, inputs, model),
+                log_entry_line=log_entry_line,
+                history_count=history_count,
+                log_occurrences=_log_section_occurrences(role, inputs, config),
+            )
+            for role in request_roles
+        )
+    return projections
+
+
+def _request_input_tokens(
+    request: Any,
+    *,
+    log_entry_line: str,
+    history_count: int,
+    log_occurrences: int,
+) -> int:
+    """Count a provider-shaped request at the spend estimator's chars/4 rate."""
+    messages: list[dict[str, Any]] = []
+    if request.system:
+        messages.append({"role": "system", "content": request.system})
+    messages.append(
+        {
+            "role": "user",
+            "content": "\n\n".join(part.text for part in request.user if isinstance(part, TextPart)),
+        }
+    )
+    tools: list[dict[str, Any]] = []
+    if request.prior is not None:
+        prior_tool = request.prior.tool
+        tools.append(_tool_definition(prior_tool))
+        messages.append(dict(request.prior.assistant))
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": request.prior.tool_call_id,
+                "content": "\n\n".join(
+                    part.text for part in request.prior.tool_result if isinstance(part, TextPart)
+                ),
+            }
+        )
+    if all(tool["function"]["name"] != request.tool.name for tool in tools):
+        tools.append(_tool_definition(request.tool))
+    body = {"model": request.model.model, "messages": messages, "tools": tools}
+    body_chars = len(canonical_json(body))
+    if history_count and log_occurrences:
+        # Add the history analytically. This preserves the exact JSON escaping
+        # cost without materializing up to 100,000 potentially max-size records.
+        escaped_entry_chars = len(json.dumps(log_entry_line, ensure_ascii=False)) - 2
+        escaped_separator_chars = len(json.dumps("\n", ensure_ascii=False)) - 2
+        body_chars += log_occurrences * (
+            history_count * escaped_entry_chars
+            + (history_count - 1) * escaped_separator_chars
+        )
+    return math.ceil(body_chars / 4)
+
+
+def _log_section_occurrences(role: str, inputs: Any, config: Config) -> int:
+    if role == "sender":
+        templates = (("sender.md", "sender"),)
+    elif role == "sender_debrief":
+        templates = (("sender.md", "sender"), ("sender_debrief.md", "sender_debrief"))
+    elif role == "receiver" and config.receiver_sees_log:
+        templates = (("receiver.md", "receiver"),)
+    else:
+        return 0
+
+    occurrences = 0
+    for name, template_role in templates:
+        template = _role_template(inputs, name, template_role)
+        occurrences += sum(
+            1
+            for match in Template.pattern.finditer(template)
+            if match.group("named") == "log_section" or match.group("braced") == "log_section"
+        )
+    return occurrences
+
+
+def _role_template(inputs: Any, name: str, role: str) -> str:
+    for key in (name, role, f"templates/{name}"):
+        value = inputs.templates.get(key)
+        if isinstance(value, str):
+            return value
+    return ""
+
+
+def _tool_definition(tool: Any) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.input_schema,
+        },
+    }
 
 
 def _check_local_rules(config: Config, report: _Experiment) -> None:
