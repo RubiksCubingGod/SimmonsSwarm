@@ -620,3 +620,19 @@ def test_catalog_without_tool_choice_detail_keeps_forcing():
         http_client.close()
 
     assert body["tool_choice"] == {"type": "function", "function": {"name": "send_message"}}
+
+
+def test_tools_are_required_only_on_the_pinned_endpoints():
+    slug = "fixture/no-tools-model"
+    provider, http_client = _provider(slug, catalog=load_catalog(FIXTURES / "catalog.json"))
+    try:
+        with pytest.raises(PermanentError, match="does not support tools"):
+            provider.build_body(_request(slug, temperature=None))
+        # Pinned to the tool-capable host, the tools check passes; this
+        # fixture host then lacks tool_choice, the next requirement.
+        with pytest.raises(PermanentError, match="required parameter\\(s\\): tool_choice"):
+            provider.build_body(
+                _request(slug, temperature=None, params={"provider": {"order": ["fixture-host-a"]}})
+            )
+    finally:
+        http_client.close()
