@@ -364,7 +364,7 @@ def test_key_limit_refuses_before_run_directory_is_created(tmp_path, monkeypatch
     raw.update(
         {
             "name": "key-limit-refusal",
-            "max_cost_usd": 0.05,
+            "max_cost_usd": 0.5,
             "models": {
                 "default": {
                     "model": "fake:covert",
@@ -382,6 +382,7 @@ def test_key_limit_refuses_before_run_directory_is_created(tmp_path, monkeypatch
 
     assert code == 3
     assert result["status"] == "refused"
+    assert "remaining credit" in result["error"]
     assert not (tmp_path / "runs-local" / config.name).exists()
 
 
@@ -451,6 +452,35 @@ def test_key_limit_refresh_between_waves_stops_before_the_next_episode(tmp_path,
     assert result["status"] == "stopped_budget"
     assert result["episodes_done"] == 1
     assert len(checks) == 2
+
+
+def test_transient_key_limit_refresh_retains_last_limit_and_completes(tmp_path, monkeypatch):
+    raw = json.loads((ROOT / SMOKE).read_text())
+    raw["name"] = "transient-key-limit-refresh"
+    config = Config.model_validate(raw)
+    refreshes: list[int] = []
+    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(tmp_path))
+
+    def remaining(_providers):
+        refreshes.append(1)
+        if len(refreshes) == 1:
+            return 1.0
+        raise TransientError("OpenRouter key refresh timed out")
+
+    monkeypatch.setattr(runner_module, "_check_provider_limits", remaining)
+
+    code, result = run_experiment(config, repo_root=ROOT, scratch=True, episodes=2)
+
+    assert code == 0
+    assert result["status"] == "complete"
+    assert result["episodes_done"] == 2
+    assert len(refreshes) == 2
+    events = read_jsonl(Path(result["run_dir"]) / "events.jsonl")
+    refresh_errors = [event for event in events if event["event"] == "provider_limit_refresh_failed"]
+    assert len(refresh_errors) == 1
+    assert refresh_errors[0]["level"] == "warning"
+    assert refresh_errors[0]["error_type"] == "TransientError"
+    assert refresh_errors[0]["fallback"] == "last_known_limit"
 
 
 def test_frozen_runner_run_seam_accepts_config_and_returns_cli_shape():

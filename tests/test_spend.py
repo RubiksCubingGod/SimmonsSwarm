@@ -169,6 +169,56 @@ def test_real_reservation_uses_catalog_and_the_outbound_max_price(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    ("prompt_ceiling", "completion_ceiling", "expected_prompt", "expected_completion"),
+    [
+        (1_000, 200, 1_000, 200),
+        (100, 2_000, 100, 2_000),
+    ],
+    ids=["prompt-ceiling-above-catalog", "completion-ceiling-above-catalog"],
+)
+def test_real_reservation_honors_outbound_max_price_above_catalog(
+    tmp_path,
+    prompt_ceiling,
+    completion_ceiling,
+    expected_prompt,
+    expected_completion,
+):
+    class _Catalog:
+        def lookup(self, slug: str):
+            assert slug == "vendor/model"
+            return ModelInfo(
+                slug=slug,
+                context_length=16_000,
+                supports_tools=True,
+                endpoint_prices=(("cheap", 10, 20), ("dear", 100, 200)),
+            )
+
+    body = {
+        "messages": [{"role": "user", "content": "ordinary request"}],
+        "tools": [],
+        "provider": {
+            "max_price": {
+                "prompt": prompt_ceiling,
+                "completion": completion_ceiling,
+            }
+        },
+    }
+    spec = ModelSpec(
+        "openrouter", "vendor/model", None, 100, {"provider": {"only": ["cheap"]}}
+    )
+    expected = (
+        len(json.dumps(body, ensure_ascii=True).encode("utf-8")) * expected_prompt
+        + 100 * expected_completion
+    ) / 1_000_000
+
+    reservation = spend.Breaker(1.0, tmp_path / "outbound-max-price.jsonl", catalog=_Catalog()).reserve(
+        "outbound-max-price", body, spec
+    )
+
+    assert reservation.usd == pytest.approx(expected)
+
+
 def test_reservation_journal_is_fsynced_before_reserve_returns(tmp_path, monkeypatch):
     fsynced: list[int] = []
     real_fsync = records.os.fsync

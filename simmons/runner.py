@@ -34,7 +34,7 @@ from .records import append_jsonl, canonical_json, read_jsonl, request_sha256, w
 from .scorers import get_scorer
 from .scorers import exact_match as _exact_match_scorer  # register the M1 scorer
 from .spend import Breaker, BreakerTripped, between_waves, check_before_run, estimate, run_cap
-from .types import EpisodeContext, EpisodeState, ModelSpec, RoleResponse, Target
+from .types import EpisodeContext, EpisodeState, ModelSpec, RoleResponse, Target, TransientError
 from .visibility import build_view
 from .roles import tool_for
 
@@ -810,6 +810,17 @@ def run_experiment(
                         between_waves(breaker, remaining_usd=remaining_usd)
                     else:
                         between_waves(breaker)
+                except TransientError as exc:
+                    events.emit(
+                        "provider_limit_refresh_failed",
+                        run_id=run_id,
+                        path=events_path,
+                        level="warning",
+                        error_type=type(exc).__name__,
+                        fallback="last_known_limit",
+                        message="Transient provider limit refresh failed; retained the last known limit.",
+                    )
+                    between_waves(breaker)
                 except BreakerTripped:
                     status, exit_code = "stopped_budget", 3
                     break
