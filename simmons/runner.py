@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import lzma
+import math
 import os
 import re
 import socket
@@ -16,6 +17,7 @@ from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -342,6 +344,50 @@ def _provider_instances(models: dict[str, ModelSpec | None]) -> tuple[dict[str, 
     return {**by_provider, **by_role}, by_role
 
 
+def _limit_remaining(detail: str) -> float | None:
+    """Parse OpenRouter's optional limit_remaining field from ProviderStatus.detail."""
+    found: str | None = None
+    for item in detail.split(";"):
+        name, separator, value = item.strip().partition("=")
+        if name != "limit_remaining":
+            continue
+        if not separator or found is not None:
+            raise ValueError("OpenRouter key check returned an invalid limit_remaining field")
+        found = value.strip()
+    if found is None or found.casefold() in {"none", "null"}:
+        return None
+    try:
+        remaining = Decimal(found)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("OpenRouter key check returned an invalid limit_remaining field") from exc
+    if not remaining.is_finite() or remaining < 0:
+        raise ValueError("OpenRouter key check returned an invalid limit_remaining field")
+    result = float(remaining)
+    if not math.isfinite(result):
+        raise ValueError("OpenRouter key check returned an invalid limit_remaining field")
+    return result
+
+
+def _check_provider_limits(providers: dict[str, Any]) -> float | None:
+    """Check each provider once and return the tightest reported OpenRouter limit."""
+    checked: set[int] = set()
+    limits: list[float] = []
+    for provider in providers.values():
+        if id(provider) in checked:
+            continue
+        checked.add(id(provider))
+        status = provider.check()
+        if status.provider != "fake" and not status.key_present:
+            raise _ProviderUnavailable(
+                status.detail or f"missing key for provider {status.provider}"
+            )
+        if status.provider == "openrouter":
+            remaining = _limit_remaining(status.detail)
+            if remaining is not None:
+                limits.append(remaining)
+    return min(limits) if limits else None
+
+
 def _write_plan(path: Path, lines: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as stream:
@@ -518,16 +564,7 @@ def run_experiment(
             raise ValueError("episodes must be at least 1")
         resolved = _model_mapping(config)
         providers, provider_by_role = _provider_instances(resolved)
-        checked_providers: set[int] = set()
-        for provider in providers.values():
-            if id(provider) in checked_providers:
-                continue
-            checked_providers.add(id(provider))
-            provider_status = provider.check()
-            if provider_status.provider != "fake" and not provider_status.key_present:
-                raise _ProviderUnavailable(
-                    provider_status.detail or f"missing key for provider {provider_status.provider}"
-                )
+        remaining_usd = _check_provider_limits(providers)
         inputs = load_inputs(config, repo_root=root)
         ids_source = compute_ids(config, repo_root=root)
         local = scratch or fake or all(
@@ -558,7 +595,7 @@ def run_experiment(
         if any(spec is not None and spec.provider != "fake" for spec in resolved.values()):
             catalog = load_catalog(root / ".simmons" / "openrouter-catalog.json")
         estimate_usd = estimate(config, plan, inputs=inputs, catalog=catalog)
-        check_before_run(config, estimate_usd)
+        check_before_run(config, estimate_usd, remaining_usd=remaining_usd)
     except _ProviderUnavailable as exc:
         return 4, _with_cli_fields(4, {"status": "failed", "error": str(exc)})
     except BreakerTripped as exc:
@@ -651,7 +688,8 @@ def run_experiment(
     _write_plan(run_dir / "plan.jsonl", plan)
     write_metadata(run_dir / "run.json", run_record)
 
-    breaker = Breaker(run_cap(config, max_cost), spend_path)
+    breaker = Breaker(run_cap(config, max_cost), spend_path, catalog=catalog)
+    between_waves(breaker, remaining_usd=remaining_usd)
     preflight_log = tuple(inherited_log)
     if config.log_window is not None:
         preflight_log = preflight_log[-config.log_window :]
@@ -763,7 +801,11 @@ def run_experiment(
                 if run_record.get("abort_reason") or (status == "failed" and exit_code == 4):
                     break
                 try:
-                    between_waves(breaker)
+                    if start + len(wave_lines) < len(plan):
+                        remaining_usd = _check_provider_limits(providers)
+                        between_waves(breaker, remaining_usd=remaining_usd)
+                    else:
+                        between_waves(breaker)
                 except BreakerTripped:
                     status, exit_code = "stopped_budget", 3
                     break

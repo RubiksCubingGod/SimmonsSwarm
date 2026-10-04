@@ -67,6 +67,7 @@ Green tests are not done. Done is run 3 on real models, with the five numbers pe
 ## Status
 
 2026-10-03. T01, T02a–f, T03, T05–T07 and T13 are merged; M5 (SS-15) is in review. Diagram at v10, leading with the base story. The v1 scope is settled in `atin/phosphor-mutations-selected.md`. The spec and build plan are committed as drafts under review. A separate conversation is choosing the ten preset option sets.
+2026-10-04. T02f, T03, T05, T06, T07 and T13 are merged; T08 real-spend work is in progress. `sender_debrief` stays at the SPEC default, `blind`, pending Atin's ruling. Diagram at v10, leading with the base story.
 
 ## How this file grows
 
@@ -99,6 +100,20 @@ Pull before editing shared files. Keep personal notes in the matching person's f
 
 `max_cost_usd` is the configured run cap and cannot exceed $20. `--max-cost` may lower it but cannot raise it. The runner estimates the run before writing files, then reserves each provider attempt in `spend.jsonl` before submission.
 
+## M3. Keys, real runs and spend
+
+### Keys
+
+Set `OPENROUTER_API_KEY` in the ignored root `.env`. The runner checks `GET /api/v1/key`; when `limit_remaining` is present it caps the run before creation and refreshes the cap between waves. Never print or commit the key.
+
+### Real runs and spend
+
+`simmons run <experiment> --dry-run` estimates cost without writing a run; it still checks the provider key. A run compares its estimate with `max_cost_usd` and reported remaining credit before creating records. Each attempt reserves against the UTF-8 request size, output and reasoning limits, and catalog prices no lower than the request's `provider.max_price`; `usage.cost` settles the reserve and unknown spend remains reserved.
+
+### Choosing models
+
+Choose a current tool-capable model in the cached OpenRouter catalog, and pin a provider when a route-specific behavior matters. Claude 5 reasoning can be encrypted; whether OpenRouter forwards a requested summary is unverified until the M3 live round-trip probe. A Claude sender-debrief `content_filter` is recorded as a refusal; do not retry it with a different prompt or route. The `sender_debrief` default remains `blind` until Atin rules.
+
 Personal tests outside `tests/` are excluded from default collection. Run one by path with `uv run pytest -q path/to/test_file.py`.
 
 ## Write an experiment
@@ -125,6 +140,7 @@ Run `uv run simmons schema` to print the config JSON Schema. Configs are strict 
 - T02a adds `config.resolve_models(config)` and `config.compute_ids(config, repo_root=None)` for canonical role models and §6.3 identities.
 - T03 adds provider-aware `config.model_param_issues(params, path, model_name=...)` checks for model-specific parameter allowlists.
 - T02f resolves the per-run cap with `simmons.spend.run_cap(config, max_cost=None)`; it refuses a CLI cap above config and returns the effective cap.
+- T08 adds optional `catalog=` to `simmons.spend.Breaker` so real reservations use cached prices and the outbound max-price ceiling.
 - `Breaker.reserve(..., request_hash=...)` records canonical role request identity while estimating spend from outbound body bytes.
 - T02f adds optional run dependencies to `EpisodeContext` and `TransientError.network_down` for network-pause retries.
 - `inputs.load(config, repo_root=None)` resolves relative input paths from the supplied experiment root.

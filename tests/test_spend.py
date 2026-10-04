@@ -133,6 +133,42 @@ def test_real_price_source_covers_fallback_routes_and_respects_hard_route_filter
     assert spend._prices_for(only, catalog) == (Decimal(10), Decimal(20))
 
 
+def test_real_reservation_uses_catalog_and_the_outbound_max_price(tmp_path):
+    class _Catalog:
+        def lookup(self, slug: str):
+            assert slug == "vendor/model"
+            return ModelInfo(
+                slug=slug,
+                context_length=16_000,
+                supports_tools=True,
+                endpoint_prices=(("cheap", 10, 20), ("dear", 100, 200)),
+            )
+
+    catalog = _Catalog()
+    spec = ModelSpec(
+        "openrouter", "vendor/model", None, 100, {"provider": {"only": ["cheap"]}}
+    )
+    body = {
+        "messages": [{"role": "user", "content": "ordinary request"}],
+        "tools": [],
+        "provider": {"max_price": {"prompt": 100, "completion": 200}},
+    }
+    expected = (
+        len(json.dumps(body, ensure_ascii=True).encode("utf-8")) * 100 + 100 * 200
+    ) / 1_000_000
+
+    reservation = spend.Breaker(0.1, tmp_path / "real-spend.jsonl", catalog=catalog).reserve(
+        "real", body, spec
+    )
+    catalog_only = spend._reservation_cost({"messages": [], "tools": []}, spec, catalog)
+
+    assert reservation.usd == pytest.approx(expected)
+    assert float(catalog_only) == pytest.approx(
+        (len(json.dumps({"messages": [], "tools": []}).encode()) * 100 + 100 * 200)
+        / 1_000_000
+    )
+
+
 def test_reservation_journal_is_fsynced_before_reserve_returns(tmp_path, monkeypatch):
     fsynced: list[int] = []
     real_fsync = records.os.fsync
@@ -264,6 +300,47 @@ def test_estimate_counts_sender_exit_interview_only_when_enabled():
     assert informed > off
 
 
+def test_real_estimate_uses_catalog_prices_and_counts_the_default_debrief():
+    class _Catalog:
+        def __init__(self, endpoints):
+            self.endpoints = endpoints
+
+        def lookup(self, slug: str):
+            assert slug == "vendor/model"
+            return ModelInfo(
+                slug=slug,
+                context_length=16_000,
+                supports_tools=True,
+                endpoint_prices=self.endpoints,
+            )
+
+    config = Config(
+        name="real-estimate",
+        models={
+            "default": ModelSpecConfig(
+                model="openrouter:vendor/model",
+                max_tokens=100,
+                params={"provider": {"only": ["cheap"]}},
+            )
+        },
+    )
+    plan = _covert_plan()
+    cheap = spend.estimate(config, plan, catalog=_Catalog((("cheap", 10, 20),)))
+    all_endpoints = spend.estimate(
+        config,
+        plan,
+        catalog=_Catalog((("cheap", 10, 20), ("dear", 100, 200))),
+    )
+    without_debrief = spend.estimate(
+        config.model_copy(update={"sender_debrief": "off"}),
+        plan,
+        catalog=_Catalog((("cheap", 10, 20), ("dear", 100, 200))),
+    )
+
+    assert all_endpoints == pytest.approx(cheap * 10)
+    assert all_endpoints > without_debrief
+
+
 def test_plain_episode_estimates_include_receiver_calls():
     zero_receiver = Config(
         name="plain-receiver-cost",
@@ -324,6 +401,8 @@ def test_preflight_checks_run_ceiling_estimate_and_remaining_credit():
         spend.check_before_run(config, 0.051)
     with pytest.raises(spend.BreakerTripped, match="remaining credit"):
         spend.check_before_run(config, 0.02, remaining_usd=0.01)
+    with pytest.raises(spend.BreakerTripped, match="no provider credit remains"):
+        spend.check_before_run(config, 0, remaining_usd=0)
     with pytest.raises(ValidationError, match="max_cost_usd"):
         _priced_config(cap=25)
 
