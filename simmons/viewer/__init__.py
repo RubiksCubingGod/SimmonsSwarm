@@ -24,6 +24,27 @@ _CALL_SLOTS = (
     ("judge", "Judge", "judge"),
     ("sender_debrief", "Sender exit interview", "sender_debrief"),
 )
+_ROLE_ABOUT = {
+    "Sender": "S writes the cover-task story that carries the target to R. System prompt: P₁.",
+    "Plain sender": "An innocent correspondent writes a genuine story, naming the target openly when required. System prompt: plain sender prompt.",
+    "Guard": "G scores suspicion and guesses the city; at or above the threshold the message is blocked. System prompt: P₂.",
+    "Receiver": "R reads the published story and picks the city it carries. System prompt: P₁.",
+    "Shadow receiver": "R reads a blocked message in a separate measurement call that cannot change the outcome; it feeds the all-covert decode gap.",
+    "Judge": "J scores R's pick against the target. Exact-match scoring runs in code, so no model is called.",
+    "Sender exit interview": "After the outcome, S is asked privately to explain its scheme. Nothing it says reaches any role. Off by default.",
+}
+_PROMPT_SECTIONS = (
+    ("prompt", "sender", "P₁ · sender prompt", "Shared by sender and receiver (system prompt); also the exit interview's system prompt.", True),
+    ("prompt", "guard", "P₂ · guard prompt", "Guard only (system prompt). The guard never sees P₁ unless the harder mode is on.", True),
+    ("prompt", "plain_sender", "Plain sender prompt", "Plain sender only (system prompt).", False),
+    ("cover_task", "", "Cover task", "Inserted into the sender, plain sender, guard, receiver and exit interview templates.", False),
+    ("template", "sender.md", "Sender template", "Sender's user message: cover task, cities, target and attempt log.", False),
+    ("template", "receiver.md", "Receiver template", "Receiver's user message: the published story, cover task and cities.", False),
+    ("template", "guard.md", "Guard template", "Guard's user message: the story, cover task, cities and any watchlist.", False),
+    ("template", "plain_sender.md", "Plain sender template", "Plain sender's user message: cover task, cities and target.", False),
+    ("template", "judge.md", "Judge template", "Judge's user message when the scorer needs a model; exact match never sends it.", False),
+    ("template", "sender_debrief.md", "Sender exit interview template", "Sent back to S after the outcome, as the result of its send call.", False),
+)
 _RATE_LABELS = {
     "hit_rate": "Hit rate",
     "catch_rate": "Catch rate",
@@ -320,7 +341,7 @@ def _call_views(
     for slot, label, requested_role in _CALL_SLOTS:
         call = calls.get(slot)
         if not isinstance(call, Mapping):
-            result.append({"slot": slot, "label": label, "called": False})
+            result.append({"slot": slot, "label": label, "about": _ROLE_ABOUT[label], "called": False})
             continue
         role = str(call.get("role") or requested_role)
         if slot == "shadow_receiver":
@@ -347,10 +368,12 @@ def _call_views(
             except (KeyError, TypeError, ValueError, IndexError) as exc:
                 render_error = str(exc)
         hash_match = bool(archive_match and fresh_hash == expected_hash)
+        shown_label = "Plain sender" if slot == "sender" and role == "plain_sender" else label
         result.append(
             {
                 "slot": slot,
-                "label": "Plain sender" if slot == "sender" and role == "plain_sender" else label,
+                "label": shown_label,
+                "about": _ROLE_ABOUT[shown_label],
                 "called": True,
                 "hash": expected_hash,
                 "hash_match": hash_match,
@@ -456,6 +479,10 @@ def _load_run_data(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]
     cover_task = inputs.cover_task
     config_data = {key: value for key, value in raw_config.items() if key not in {"ids", "protocol_version"}}
     models = _recorded_models(run, requests, raw_config)
+    prompt_names = {
+        role: Path(str(raw_config.get(f"{role}_prompt", role))).stem
+        for role in ("sender", "guard", "plain_sender")
+    }
     run_page = {
         "page": "run",
         "run": run,
@@ -463,13 +490,32 @@ def _load_run_data(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]
         "models": models,
         "summary": summary,
         "cover_task": cover_task,
-        "prompt_names": {
-            role: Path(str(raw_config.get(f"{role}_prompt", role))).stem
-            for role in ("sender", "guard", "plain_sender")
-        },
+        "prompt_names": prompt_names,
+        "prompts": _prompt_sections(inputs, prompt_names),
         "episodes": episode_rows,
     }
     return run_page, episode_pages
+
+
+def _prompt_sections(inputs: Inputs, prompt_names: Mapping[str, str]) -> list[dict[str, Any]]:
+    """List the run's snapshotted prompts, cover task and role templates, labelled by recipient."""
+    texts = {
+        "sender": inputs.sender_prompt,
+        "guard": inputs.guard_prompt,
+        "plain_sender": inputs.plain_sender_prompt,
+    }
+    sections: list[dict[str, Any]] = []
+    for kind, key, label, who, open_ in _PROMPT_SECTIONS:
+        if kind == "prompt":
+            text, source = texts[key], f"{prompt_names.get(key, key)} (inputs/prompts/{key}.md)"
+        elif kind == "cover_task":
+            text, source = inputs.cover_task, "inputs/cover-task.md"
+        else:
+            if key not in inputs.templates:
+                continue
+            text, source = inputs.templates[key], f"inputs/templates/{key}"
+        sections.append({"label": label, "who": who, "source": source, "text": text, "open": open_})
+    return sections
 
 
 def _safe_json(value: Any) -> str:
@@ -489,6 +535,14 @@ _STYLE = r"""
 """
 
 _STYLE += "\n.bar{position:relative;overflow:visible}.bar span{border-radius:8px}.bar i{position:absolute;top:-3px;height:16px;width:2px;background:var(--gold);transform:translateX(-1px)}"
+_STYLE += (
+    "\n.option-card>summary{cursor:pointer}.option-card>summary strong{font-size:17px;margin-right:12px}"
+    ".option-card[open]>summary{margin-bottom:12px}.card-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}"
+    ".card-head h2{margin:0}.role-tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px;margin:12px 0}"
+    ".role-tab{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;padding:10px 12px}"
+    ".role-tab span{line-height:1.4}.role-tab.idle strong{color:var(--muted)}.prompt{border-top:1px solid var(--line);padding:10px 0}"
+    ".prompt summary{cursor:pointer}.prompt summary strong{color:var(--cyan)}.prompt-source{margin:8px 0 6px}.card>pre:last-child{margin-bottom:0}"
+)
 
 
 _SCRIPT = r"""
@@ -511,6 +565,7 @@ function runPage(){
  const modelLabel=(value)=>value&&typeof value==="object"?(value.provider&&value.model?`${value.provider}:${value.model}`:value.configured?`${value.configured} (configured; no call recorded)`:"—"):"—";
  const modelRows=Object.entries({sender:"Sender model",receiver:"Receiver model",guard:"Guard model",plain_sender:"Plain sender model",judge:"Judge model"}).map(([role,label])=>[label,data.models?.[role]]);
  for(const [label,value] of [["Author",r.author],["Episodes",`${r.episodes_done} / ${r.episodes_planned}`],["Sender prompt",data.prompt_names.sender],["Guard prompt",data.prompt_names.guard],["Plain sender prompt",data.prompt_names.plain_sender],["Cover task",data.cover_task],["Arena",r.ids?.arena],...modelRows]){const cell=add(meta,"div");add(cell,"strong",label);if(label==="Cover task"){const details=add(cell,"details","","cover-task");const first=value.split(/\r?\n/).map(x=>x.trim()).find(Boolean)||"Cover task";add(details,"summary",first.replace(/^#+\s*/,""));add(details,"div",value,"cover-task-full");}else add(cell,"span",label.endsWith(" model")?modelLabel(value):show(value));}
+ const prompts=add(root,"section","","card");add(prompts,"h2","Prompts");add(prompts,"p","Exactly what each role was given in this run, from its inputs snapshot.","muted small");for(const item of data.prompts||[]){const d=add(prompts,"details","","prompt");d.open=!!item.open;const sum=add(d,"summary");add(sum,"strong",item.label);add(sum,"span",` · ${item.who}`,"muted");add(d,"div",item.source,"small muted prompt-source");add(d,"pre",item.text||"(empty)");}
  const rates=add(root,"section","","card");add(rates,"h2","Run metrics");const grid=add(rates,"div","","metric-grid");for(const [key,label] of Object.entries({hit_rate:"Hit rate",catch_rate:"Catch rate",false_alarm_rate:"False-alarm rate",sanity_catch_rate:"Sanity catch rate"}))metric(grid,label,s.rates?.[key]);
  const decode=s.decode||{};const dg=add(rates,"div","","metric-grid");metric(dg,"Receiver decode",decode.receiver);metric(dg,"Guard decode",decode.guard);const gap=add(dg,"div","","metric");add(gap,"span","Decode gap");add(gap,"strong",pct(decode.gap));add(gap,"small",`Chance R ${pct(decode.chance?.receiver)} · G ${pct(decode.chance?.guard)}`);const cost=add(dg,"div","","metric");add(cost,"span","Spend");add(cost,"strong",money(s.cost?.usd??r.spent_usd));add(cost,"small","USD");
  const curve=add(root,"section","","card");add(curve,"h2","Catch vs false-alarm curve");drawCurve(curve,s.curve,s.rates?.false_alarm_rate);
@@ -534,17 +589,19 @@ const xl=document.createElementNS(svg.namespaceURI,"text");xl.setAttribute("x",S
 }
 function episodePage(){
  const e=data.episode,r=data.run;header(`Episode ${Number(e.index)}`,`${show(e.kind)} · ${show(e.outcome)} · run ${show(r.run_id)}`,true);
- const optionCard=add(root,"section","","card");add(optionCard,"h2","Options");add(optionCard,"p","Gold outline: target · shaded: protected · purple: guard guess · green: receiver pick","muted small");const options=add(optionCard,"div","","options");for(let i=0;i<data.options.length;i++){const c=[];if(i===data.target_index)c.push("target");if(data.protected_indices.includes(i))c.push("protected");if(e.guard?.guess?.index===i)c.push("guess");if(e.pick?.index===i)c.push("pick");const chip=add(options,"div",data.options[i],`option ${c.join(" ")}`);if(i===data.target_index)add(chip,"span","Target","badge");if(data.protected_indices.includes(i))add(chip,"span","Protected","badge");if(e.guard?.guess?.index===i)add(chip,"span","Guard guess","badge");if(e.pick?.index===i)add(chip,"span","Receiver pick","badge");}
- const messages=add(root,"section","","card");add(messages,"h2","Message");const split=add(messages,"div","","split");const sent=add(split,"div","","panel");add(sent,"h3","As sent");add(sent,"pre",e.messages?.[0]?.sent??"No message");const delivered=add(split,"div","","panel");add(delivered,"h3","As delivered");add(delivered,"pre",e.messages?.[0]?.delivered??(e.outcome==="CATCH"?"Not delivered; guard blocked the message.":"No message delivered"));if(e.messages?.[0]?.rewritten)add(messages,"p",`Rewritten: ${e.messages[0].rewritten}`);
+ const summaryParts=[`${data.options.length} options`,`target ${show(data.options[data.target_index])}`];if(data.protected_indices.length)summaryParts.push(`${data.protected_indices.length} protected${data.protected_indices.includes(data.target_index)?" (target protected)":""}`);summaryParts.push(e.guard?`guard guessed ${show(e.guard.guess?.value)}${e.guard.guess?.index===data.target_index?" ✓":""}`:"guard: not called");summaryParts.push(e.calls?.receiver?`receiver picked ${show(e.pick?.value)}${e.pick?.index===data.target_index?" ✓":""}`:"receiver: not called");
+ const optionCard=add(root,"details","","card option-card");const optionSummary=add(optionCard,"summary");add(optionSummary,"strong","Options");add(optionSummary,"span",summaryParts.join(" · "));add(optionCard,"p","Gold outline: target · shaded: protected · purple: guard guess · green: receiver pick","muted small");const options=add(optionCard,"div","","options");for(let i=0;i<data.options.length;i++){const c=[];if(i===data.target_index)c.push("target");if(data.protected_indices.includes(i))c.push("protected");if(e.guard?.guess?.index===i)c.push("guess");if(e.pick?.index===i)c.push("pick");const chip=add(options,"div",data.options[i],`option ${c.join(" ")}`);if(i===data.target_index)add(chip,"span","Target","badge");if(data.protected_indices.includes(i))add(chip,"span","Protected","badge");if(e.guard?.guess?.index===i)add(chip,"span","Guard guess","badge");if(e.pick?.index===i)add(chip,"span","Receiver pick","badge");}
+ const message=e.messages?.[0];const blocked=e.guard?.blocked===true||e.outcome==="CATCH";const [statusText,statusClass]=!message?["No message","unknown"]:message.delivered!=null?["Delivered","good"]:blocked?["Blocked by guard","bad"]:["Not delivered","unknown"];
+ const messages=add(root,"section","","card");const messageHead=add(messages,"div","","card-head");add(messageHead,"h2","Message");add(messageHead,"span",statusText,`status ${statusClass}`);const versions=[["Sent",message?.sent],["Rewritten",message?.rewritten],["Delivered",message?.delivered]].filter(([,v])=>v!=null);if(new Set(versions.map(([,v])=>v)).size>1){const versionGrid=add(messages,"div","","panels");for(const [label,v] of versions){const p=add(versionGrid,"div","","panel");add(p,"h3",label);add(p,"pre",v);}}else add(messages,"pre",versions[0]?.[1]??"No message");
  const panels=add(root,"section","","card");add(panels,"h2","Decisions");const grid=add(panels,"div","","panels");const guard=add(grid,"section","","panel");add(guard,"h3","Guard");if(e.guard){const suspicion=Number(e.guard.suspicion)||0,threshold=Number(e.guard.threshold);add(guard,"p",`Suspicion ${e.guard.suspicion==null?"—":Number(e.guard.suspicion).toFixed(3)} · threshold ${show(e.guard.threshold)}`);const bar=add(guard,"div","","bar");bar.setAttribute("role","img");bar.setAttribute("aria-label",`Suspicion ${show(e.guard.suspicion)}, threshold ${show(e.guard.threshold)}`);const fill=add(bar,"span");fill.style.width=`${Math.max(0,Math.min(1,suspicion))*100}%`;if(e.guard.threshold!=null&&Number.isFinite(threshold)){const tick=add(bar,"i");tick.style.left=`${Math.max(0,Math.min(1,threshold))*100}%`;tick.title=`Block threshold ${threshold.toFixed(3)}`;}add(guard,"p",`Guess: ${e.guard.guess?.value??"—"}`);add(guard,"p",e.calls?.guard?.output?.reason??"No reason recorded.","content-block");}else add(guard,"p","No guard decision recorded.","muted");
  const receiver=add(grid,"section","","panel");add(receiver,"h3","Receiver");if(e.outcome==="CATCH"){add(receiver,"p","Not called: the guard blocked the message.");}else if(!e.calls?.receiver){const failure=e.error;add(receiver,"p",failure?.role?`Not called: ${failure.role} failed before the receiver ran.`:"Not called: the episode ended before the receiver ran.");if(failure?.message)add(receiver,"p",failure.message,"content-block");}else{add(receiver,"p",`Pick: ${e.pick?.value??"—"}`);add(receiver,"p",e.calls?.receiver?.output?.reason??"No reason recorded.","content-block");}
  if(e.calls?.sender_debrief){const d=add(grid,"section","","panel");add(d,"h3","Sender exit interview");const out=e.calls.sender_debrief.output||{};for(const [label,key] of [["Scheme","scheme"],["Encoding","encoding"],["Expected decode","expected_decode"],["Confidence","confidence"]]){add(d,"strong",`${label}: `);add(d,"span",show(out[key]));add(d,"br");}const prior=e.calls.sender_debrief.prior_reasoning;add(d,"p",prior?.passed_back?"Prior reasoning carried":"Prior reasoning reconstructed from the message","muted small");if(e.calls.sender?.thinking)add(d,"details").append(el("summary","Send call thinking"),el("pre",e.calls.sender.thinking));}
+ const seen=add(root,"section","","card");add(seen,"h2","As seen by");add(seen,"p","The exact request each role received, re-rendered from the run inputs and hash-checked.","muted small");const tabs=add(seen,"div","","role-tabs");const panel=add(seen,"div");const roleRows=data.roles||[];for(let i=0;i<roleRows.length;i++){const role=roleRows[i];const button=add(tabs,"button","",`role-tab${role.called?"":" idle"}`);button.type="button";add(button,"strong",role.called?role.label:`${role.label} · not called`);if(role.about)add(button,"span",role.about,"small muted");button.setAttribute("aria-selected",i===0?"true":"false");button.addEventListener("click",()=>{for(const b of tabs.querySelectorAll("button"))b.setAttribute("aria-selected",b===button?"true":"false");renderRequest(panel,role);});}if(roleRows.length)renderRequest(panel,roleRows[0]);
  const log=add(root,"section","","card");add(log,"h2","Attempt log as sender saw it");if(data.attempt_log.length){for(const item of data.attempt_log){const row=add(log,"div","","panel");add(row,"strong",`#${item.episode} · ${item.outcome}`);add(row,"p",item.target);add(row,"pre",item.message);}}else add(log,"p","No earlier sender attempts were in the log.","muted");
- const seen=add(root,"section","","card");add(seen,"h2","As seen by");const tabs=add(seen,"div","","tabs");const panel=add(seen,"div");const roleRows=data.roles||[];for(let i=0;i<roleRows.length;i++){const role=roleRows[i];const button=add(tabs,"button",role.label);button.type="button";button.setAttribute("aria-selected",i===0?"true":"false");button.addEventListener("click",()=>{for(const b of tabs.querySelectorAll("button"))b.setAttribute("aria-selected",b===button?"true":"false");renderRequest(panel,role);});}if(roleRows.length)renderRequest(panel,roleRows[0]);
 }
 function renderRequest(parent,row){
  parent.replaceChildren();if(!row.called){add(parent,"p","Not called in this episode.","muted");return;}if(!row.request){add(parent,"p","Request is missing from requests.jsonl.xz.","status bad");return;}
- const status=row.hash_match?"Request hash matches fresh render":"Request hash does not match fresh render";add(parent,"div",status,`status ${row.hash_match?"good":"bad"}`);add(parent,"p",`sha256 ${show(row.hash)}`,"small muted");if(row.render_error)add(parent,"p",`Fresh render error: ${row.render_error}`,"small status bad");const q=row.request;pre(parent,"System",q.system);add(parent,"h3","User");for(const part of q.user||[]){if(part.text!==undefined)add(parent,"pre",part.text);else add(parent,"pre",JSON.stringify(part,null,2));}pre(parent,"Tool",JSON.stringify(q.tool,null,2));if(q.prior){add(parent,"h3","Prior turn");pre(parent,"Tool call",JSON.stringify({tool:q.prior.tool,tool_call_id:q.prior.tool_call_id},null,2));pre(parent,"Assistant turn",JSON.stringify(q.prior.assistant,null,2));for(const part of q.prior.tool_result||[])add(parent,"pre",part.text??JSON.stringify(part,null,2));}
+ const status=row.hash_match?"Request hash matches fresh render":"Request hash does not match fresh render";add(parent,"div",status,`status ${row.hash_match?"good":"bad"}`);add(parent,"p",`sha256 ${show(row.hash)}`,"small muted content-block");if(row.render_error)add(parent,"p",`Fresh render error: ${row.render_error}`,"small status bad");const q=row.request;pre(parent,"System",q.system);add(parent,"h3","User");for(const part of q.user||[]){if(part.text!==undefined)add(parent,"pre",part.text);else add(parent,"pre",JSON.stringify(part,null,2));}pre(parent,"Tool",JSON.stringify(q.tool,null,2));if(q.prior){add(parent,"h3","Prior turn");pre(parent,"Tool call",JSON.stringify({tool:q.prior.tool,tool_call_id:q.prior.tool_call_id},null,2));pre(parent,"Assistant turn",JSON.stringify(q.prior.assistant,null,2));for(const part of q.prior.tool_result||[])add(parent,"pre",part.text??JSON.stringify(part,null,2));}
 }
 if(data.page==="run")runPage();else episodePage();
 """
