@@ -283,9 +283,11 @@ def test_debrief_canary_is_absent_from_guard_receiver_requests_and_attempt_log(
 ):
     monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(tmp_path))
     original_complete = FakeProvider.complete
+    submissions = []
     canary = "T02F_B_DEBRIEF_CANARY_8bd39c"
 
     def add_canary_to_debrief(self, request):
+        submissions.append(request)
         response = original_complete(self, request)
         if request.role == "sender_debrief":
             return replace(
@@ -296,7 +298,7 @@ def test_debrief_canary_is_absent_from_guard_receiver_requests_and_attempt_log(
 
     monkeypatch.setattr(FakeProvider, "complete", add_canary_to_debrief)
 
-    code, result = run_experiment(SMOKE, repo_root=ROOT, scratch=True, episodes=1)
+    code, result = run_experiment(SMOKE, repo_root=ROOT, scratch=True, episodes=3)
 
     assert code == 0
     run_dir = Path(result["run_dir"])
@@ -306,12 +308,28 @@ def test_debrief_canary_is_absent_from_guard_receiver_requests_and_attempt_log(
         for record in episodes
         if record["calls"]["sender_debrief"] is not None
     )
-    outbound_guard_receiver = [
+    first_debrief_submission = next(
+        i
+        for i, request in enumerate(submissions)
+        if request.request_id == "sender_debrief:0"
+    )
+    later_submissions = submissions[first_debrief_submission + 1 :]
+    assert any(request.role == "guard" for request in later_submissions)
+    assert any(request.role == "receiver" for request in later_submissions)
+
+    archived_requests = read_requests_xz(run_dir / "requests.jsonl.xz")
+    first_debrief_request = next(
+        i
+        for i, row in enumerate(archived_requests)
+        if row["request_id"] == "sender_debrief:0"
+    )
+    later_guard_receiver = [
         row
-        for row in read_requests_xz(run_dir / "requests.jsonl.xz")
+        for row in archived_requests[first_debrief_request + 1 :]
         if row["role"] in {"guard", "receiver"}
     ]
-    assert outbound_guard_receiver
-    assert all(canary not in canonical_json(row) for row in outbound_guard_receiver)
+    assert any(row["role"] == "guard" for row in later_guard_receiver)
+    assert any(row["role"] == "receiver" for row in later_guard_receiver)
+    assert all(canary not in canonical_json(row) for row in later_guard_receiver)
     attempt_log = read_jsonl(run_dir / "attempt-log.jsonl")
     assert all(canary not in canonical_json(row) for row in attempt_log)
