@@ -124,14 +124,14 @@ class FakeProvider:
             )
 
         mode = request.model.model
-        if mode not in {"fake:covert", "fake:random", "fake:broken"}:
+        if mode not in {"covert", "random", "broken"}:
             raise PermanentError(f"unsupported fake model: {mode}")
 
         rng = _rng(request, "response")
         tool_input, reasoning_details = self._make_tool_input(
             request, mode, params, rng
         )
-        if mode == "fake:broken" and rng.random() < _rate_param(
+        if mode == "broken" and rng.random() < _rate_param(
             params, "fail_rate", 0.3
         ):
             tool_input = _break_schema(tool_input, request.tool.input_schema)
@@ -234,7 +234,7 @@ class FakeProvider:
         params: Mapping[str, Any],
         rng: Random,
     ) -> tuple[dict[str, Any], tuple[Mapping[str, Any], ...] | None]:
-        if mode == "fake:random":
+        if mode == "random":
             return _schema_value(request.tool.input_schema, rng), None
 
         if request.tool.name == EXPLAIN_MESSAGE_TOOL_NAME:

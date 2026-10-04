@@ -56,7 +56,7 @@ def _tool(name: str, schema: dict) -> ToolSpec:
 def _request(
     *,
     role: str = "sender",
-    mode: str = "fake:covert",
+    mode: str = "covert",
     tool: ToolSpec | None = None,
     body: str | None = None,
     target: str = "Canberra",
@@ -249,7 +249,7 @@ def test_fake_random_returns_seeded_uniform_schema_valid_values():
     provider = FakeProvider()
     request = _request(
         role="receiver",
-        mode="fake:random",
+        mode="random",
         tool=_tool("pick_option", RECEIVER_SCHEMA),
     )
     picks = [
@@ -274,7 +274,7 @@ def test_fake_random_returns_seeded_uniform_schema_valid_values():
 
 
 def test_fake_broken_returns_schema_invalid_tool_input_at_rate_one():
-    request = _request(mode="fake:broken", params={"fail_rate": 1.0})
+    request = _request(mode="broken", params={"fail_rate": 1.0})
     response = FakeProvider().complete(request)
     with pytest.raises(ValidationError):
         Draft202012Validator(SEND_MESSAGE_INPUT_SCHEMA).validate(response.tool_input)
@@ -386,7 +386,7 @@ def test_settlement_fields_and_fake_status():
         + response.usage.output_tokens * prices["price_out"]
     ) / 1_000_000
     assert response.cost_usd == pytest.approx(expected)
-    assert response.model_reported == "fake:covert"
+    assert response.model_reported == "covert"
     assert response.served_by == "fake"
     assert response.generation_id
     assert response.finish_reason == "tool_calls"
