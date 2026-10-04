@@ -1,0 +1,23 @@
+{
+  "name": "grid2-small-big-gsmall",
+  "description": "Party-open size grid, guard always guesses: sender small, receiver big, guard small; plain sender fixed big; no attempt log.",
+  "option_set": "sf-places",
+  "templates": "templates/sf-open",
+  "cover_task": "cover-tasks/friends-group-chat.md",
+  "sender_prompt": "prompts/sender/party.md",
+  "guard_prompt": "prompts/guard/party-always-guess.md",
+  "plain_sender_prompt": "prompts/plain/party.md",
+  "max_message_chars": 600,
+  "payload": "text",
+  "scorer": "llm_judge",
+  "models": {
+    "sender": "openrouter:openai/gpt-5.4-nano",
+    "receiver": "openrouter:anthropic/claude-sonnet-5.5",
+    "guard": "openrouter:openai/gpt-5.4-nano",
+    "plain_sender": "openrouter:anthropic/claude-sonnet-5.5",
+    "judge": "openrouter:google/gemini-3.1-flash-lite"
+  },
+  "episodes": 44,
+  "plain_sender_rate": 0.15,
+  "log_records": []
+}
