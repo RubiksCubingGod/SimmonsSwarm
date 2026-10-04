@@ -1,0 +1,38 @@
+{
+  "error": {
+    "message": "Provider returned error",
+    "code": 400,
+    "metadata": {
+      "raw": "{\"message\":\"'messages' must not be empty\"}",
+      "provider_name": "Amazon Bedrock",
+      "is_byok": false,
+      "previous_errors": [
+        {
+          "code": 400,
+          "message": "Provider returned error",
+          "provider_name": "Claude Platform on AWS",
+          "raw": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages: at least one message is required\"},\"request_id\":\"req_011CfgDScHu7k41Lofwwrbxf\"}"
+        },
+        {
+          "code": 400,
+          "message": "Provider returned error",
+          "provider_name": "Azure",
+          "raw": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages: at least one message is required\"},\"request_id\":\"req_011CfgDSdNPRmpGmxxLyri5S\"}"
+        },
+        {
+          "code": 400,
+          "message": "Provider returned error",
+          "provider_name": "Anthropic",
+          "raw": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages: at least one message is required\"},\"request_id\":\"req_011CfgDSe7HL5QauXsEy7M2j\"}"
+        },
+        {
+          "code": 400,
+          "message": "Provider returned error",
+          "provider_name": "Google",
+          "raw": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages: at least one message is required\"},\"request_id\":\"req_vrtx_011CfgDSfSAbXTtkT45wTBYq\"}"
+        }
+      ]
+    }
+  },
+  "user_id": "user_2ZhqyiK0MJ5QOZH12E4gwK3TVt1"
+}
