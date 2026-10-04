@@ -215,7 +215,12 @@ class Reservation:
 
 class Breaker(Protocol):
     def reserve(
-        self, attempt_id: str, body: Mapping[str, Any], spec: ModelSpec
+        self,
+        attempt_id: str,
+        body: Mapping[str, Any],
+        spec: ModelSpec,
+        *,
+        request_hash: str | None = None,
     ) -> Reservation: ...
 
     def settle(self, reservation: Reservation, response: RoleResponse) -> None: ...

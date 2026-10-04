@@ -20,7 +20,13 @@ from simmons.runner import run as run_config
 from simmons.runner import _make_state, run_experiment
 from simmons.scorers.exact_match import ExactMatchScorer
 from simmons.spend import Breaker
-from simmons.types import BreakerTripped, EpisodeContext, PermanentError, TransientError
+from simmons.types import (
+    BudgetError,
+    BreakerTripped,
+    EpisodeContext,
+    PermanentError,
+    TransientError,
+)
 from simmons.commands.verify import verify_run
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,6 +90,16 @@ def test_smoke_matches_golden_and_fake_runs_are_deterministic(tmp_path: Path):
     assert all("sender_debrief" not in row for row in read_jsonl(first / "attempt-log.jsonl"))
     assert first_run["preflight"]["sender_reasoning"]["fake:covert"]["carried"] is True
     request_rows = read_requests_xz(first / "requests.jsonl.xz")
+    reserve_hashes = {
+        row["request_sha256"]
+        for row in read_jsonl(first / "spend.jsonl")
+        if row["event"] == "reserve"
+    }
+    request_hashes = {row["request_sha256"] for row in request_rows}
+    call_hashes = {row["request_sha256"] for row in read_jsonl(first / "calls.jsonl")}
+    assert reserve_hashes
+    assert reserve_hashes <= request_hashes
+    assert reserve_hashes <= call_hashes
     assert any(
         row.get("prior", {}).get("assistant", {}).get("reasoning_details")
         for row in request_rows
@@ -152,6 +168,17 @@ def test_smoke_matches_golden_and_fake_runs_are_deterministic(tmp_path: Path):
     _write_jsonl(missing_log_hash / "calls.jsonl", call_rows)
     assert any("request_sha256" in error for error in verify_run(missing_log_hash))
 
+    missing_reserve_request = tmp_path / "missing-reserve-request"
+    shutil.copytree(first, missing_reserve_request)
+    spend_rows = read_jsonl(missing_reserve_request / "spend.jsonl")
+    reserve_row = next(row for row in spend_rows if row["event"] == "reserve")
+    reserve_row["request_sha256"] = "missing-reserve-request-hash"
+    _write_jsonl(missing_reserve_request / "spend.jsonl", spend_rows)
+    assert any(
+        "reserve request hash is absent from requests.jsonl.xz" in error
+        for error in verify_run(missing_reserve_request)
+    )
+
 
 def test_priced_smoke_trips_the_breaker_below_its_cap():
     code, result = _run(PRICED)
@@ -160,6 +187,30 @@ def test_priced_smoke_trips_the_breaker_below_its_cap():
     assert result["episodes_done"] < result["episodes_planned"]
     assert 0 < result["spent_usd"] < 0.05
     assert verify_run(result["run_dir"]) == []
+
+
+def test_provider_budget_error_stops_without_recording_unfinished_episode(monkeypatch):
+    original_complete = FakeProvider.complete
+    guard_calls = 0
+
+    def refuse_guard_after_first_episode(self, request):
+        nonlocal guard_calls
+        if request.role == "guard":
+            guard_calls += 1
+            if guard_calls == 3:
+                raise BudgetError("synthetic HTTP 402 budget refusal")
+        return original_complete(self, request)
+
+    monkeypatch.setattr(FakeProvider, "complete", refuse_guard_after_first_episode)
+    code, result = _run(SMOKE, episodes=5)
+
+    assert code == 3
+    assert result["status"] == "stopped_budget"
+    assert result["episodes_done"] == 1
+    assert guard_calls == 3
+    run_dir = Path(result["run_dir"])
+    assert [row["index"] for row in read_jsonl(run_dir / "episodes.jsonl")] == [0]
+    assert verify_run(run_dir) == []
 
 
 def test_cli_override_cap_and_dry_run_validation():
@@ -325,3 +376,37 @@ def test_fixture_run_corpus_is_valid_and_covers_both_arenas():
     assert len(watchlist_episodes) == 20
     assert any(row["calls"]["sender_debrief"] is not None for row in watchlist_episodes)
     assert verify_run(watchlist) == []
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ("plan.jsonl", "attempt-log.jsonl", "summary.json", "events.jsonl"),
+)
+def test_verify_rejects_unknown_schema_in_each_record_file(
+    tmp_path: Path, relative_path: str
+):
+    source = ROOT / "tests/fixtures/runs/base/sender-a__guard-a"
+    copied = tmp_path / "corrupt-schema"
+    shutil.copytree(source, copied)
+    path = copied / relative_path
+
+    if relative_path.endswith(".json"):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record["schema"] = "simmons.unknown/1"
+        path.write_text(json.dumps(record), encoding="utf-8")
+    else:
+        rows = read_jsonl(path)
+        rows[0]["schema"] = "simmons.unknown/1"
+        _write_jsonl(path, rows)
+
+    assert any(error.startswith(f"{relative_path}:") for error in verify_run(copied))
+
+
+def test_verify_accepts_committed_run_without_calls_or_events_logs(tmp_path: Path):
+    source = ROOT / "tests/fixtures/runs/base/sender-a__guard-a"
+    copied = tmp_path / "committed-run"
+    shutil.copytree(source, copied)
+    (copied / "calls.jsonl").unlink()
+    (copied / "events.jsonl").unlink()
+
+    assert verify_run(copied) == []

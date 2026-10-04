@@ -34,6 +34,27 @@ def verify_run(run_dir: str | Path) -> list[str]:
     except Exception as exc:
         errors.append(f"episodes.jsonl: {exc}")
         episodes = []
+
+    for filename in ("plan.jsonl", "attempt-log.jsonl"):
+        try:
+            read_jsonl(root / filename)
+        except Exception as exc:
+            errors.append(f"{filename}: {exc}")
+
+    try:
+        summary = json.loads((root / "summary.json").read_text(encoding="utf-8"))
+        if not isinstance(summary, dict):
+            raise ValueError("summary.json must contain an object")
+        validate_record(summary)
+    except Exception as exc:
+        errors.append(f"summary.json: {exc}")
+
+    events_path = root / "events.jsonl"
+    if events_path.exists():
+        try:
+            read_jsonl(events_path)
+        except Exception as exc:
+            errors.append(f"events.jsonl: {exc}")
     by_index: dict[int, int] = defaultdict(int)
     for record in episodes:
         by_index[int(record["index"])] += 1
@@ -91,16 +112,18 @@ def verify_run(run_dir: str | Path) -> list[str]:
             if record.get("pick") is not None:
                 errors.append(f"episode {record.get('index')}: blocked episode has an ordinary pick")
 
-    try:
-        calls_log = read_jsonl(root / "calls.jsonl")
-        for call in calls_log:
-            digest = call.get("request_sha256")
-            if not isinstance(digest, str) or not digest:
-                errors.append("calls.jsonl: request hash is absent or empty")
-            elif digest not in request_hashes:
-                errors.append("calls.jsonl: request hash is absent from requests.jsonl.xz")
-    except Exception as exc:
-        errors.append(f"calls.jsonl: {exc}")
+    calls_path = root / "calls.jsonl"
+    if calls_path.exists():
+        try:
+            calls_log = read_jsonl(calls_path)
+            for call in calls_log:
+                digest = call.get("request_sha256")
+                if not isinstance(digest, str) or not digest:
+                    errors.append("calls.jsonl: request hash is absent or empty")
+                elif digest not in request_hashes:
+                    errors.append("calls.jsonl: request hash is absent from requests.jsonl.xz")
+        except Exception as exc:
+            errors.append(f"calls.jsonl: {exc}")
 
     try:
         spend = read_jsonl(root / "spend.jsonl")
@@ -114,6 +137,11 @@ def verify_run(run_dir: str | Path) -> list[str]:
                     errors.append(f"spend.jsonl: duplicate reserve for {attempt}")
                 else:
                     entries[attempt] = {"reserve": row, "terminal": None}
+                digest = row.get("request_sha256")
+                if not isinstance(digest, str) or not digest:
+                    errors.append("spend.jsonl: reserve request hash is absent or empty")
+                elif digest not in request_hashes:
+                    errors.append("spend.jsonl: reserve request hash is absent from requests.jsonl.xz")
             else:
                 if attempt not in entries:
                     errors.append(f"spend.jsonl: {event} has no reserve for {attempt}")

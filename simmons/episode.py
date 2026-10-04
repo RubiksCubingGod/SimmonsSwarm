@@ -212,7 +212,11 @@ def _call_role(
             body = provider.build_body(current)
             digest = request_sha256(current)
             attempt_id = f"{ctx.run_id}:{attempt_prefix or state.episode}:{role}:a{provider_attempt}:n{network_pauses}"
-            reservation = ctx.breaker.reserve(attempt_id, body, spec) if ctx.breaker else None
+            reservation = (
+                ctx.breaker.reserve(attempt_id, body, spec, request_hash=digest)
+                if ctx.breaker
+                else None
+            )
             reservation_open = reservation is not None
             try:
                 _append_request(ctx, current, digest)
@@ -268,7 +272,7 @@ def _call_role(
                     ctx.breaker.settle(reservation, _zero_response(current))
                     reservation_open = False
                 _append_call(ctx, digest, {"error": _safe_exception(exc), "kind": "budget"}, elapsed_ms)
-                raise CallFailure(role, "provider", _safe_exception(exc), attempts=counted_attempts + 1) from exc
+                raise BreakerTripped(f"provider budget refusal: {_safe_exception(exc)}") from exc
             except Exception as exc:
                 elapsed_ms = int((time.monotonic() - started) * 1000)
                 if reservation is not None:

@@ -112,5 +112,6 @@ Pull before editing shared files. Keep personal notes in the matching person's f
 - T07: `load_catalog` reads the local snapshot without network; `refresh_catalog` updates the daily OpenRouter model and endpoint cache; `check_models` validates slug, tool and price availability, endpoint parameter support, and projected context fit.
 - T02a adds `config.resolve_models(config)` and `config.compute_ids(config, repo_root=None)` for canonical role models and §6.3 identities.
 - T02f resolves the per-run cap with `simmons.spend.run_cap(config, max_cost=None)`; it refuses a CLI cap above config and returns the effective cap.
+- `Breaker.reserve(..., request_hash=...)` records canonical role request identity while estimating spend from outbound body bytes.
 - T02f adds optional run dependencies to `EpisodeContext` and `TransientError.network_down` for network-pause retries.
 - `inputs.load(config, repo_root=None)` resolves relative input paths from the supplied experiment root.

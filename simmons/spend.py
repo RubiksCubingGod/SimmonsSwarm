@@ -260,12 +260,21 @@ class Breaker(BreakerProtocol):
         if self._journal_path is not None:
             append_jsonl(self._journal_path, record)
 
-    def reserve(self, attempt_id: str, body: Mapping[str, Any], spec: ModelSpec) -> Reservation:
+    def reserve(
+        self,
+        attempt_id: str,
+        body: Mapping[str, Any],
+        spec: ModelSpec,
+        *,
+        request_hash: str | None = None,
+    ) -> Reservation:
         if not attempt_id:
             raise ValueError("attempt_id must not be empty")
-        request_hash = request_sha256(body)
+        identity_hash = request_sha256(body) if request_hash is None else request_hash
+        if not isinstance(identity_hash, str) or not identity_hash:
+            raise ValueError("request_hash must not be empty")
         amount = _reservation_cost(body, spec)
-        reservation = Reservation(attempt_id, float(amount), request_hash)
+        reservation = Reservation(attempt_id, float(amount), identity_hash)
         stored_amount = _decimal(reservation.usd, "reservation usd")
         with self._lock:
             if self._tripped is not None:
@@ -291,7 +300,7 @@ class Breaker(BreakerProtocol):
                     "attempt_id": attempt_id,
                     "event": "reserve",
                     "usd": reservation.usd,
-                    "request_sha256": request_hash,
+                    "request_sha256": identity_hash,
                     "ts": _utc_now(),
                 }
             )
