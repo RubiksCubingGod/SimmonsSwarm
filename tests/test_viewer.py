@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 from dataclasses import replace
+from html.parser import HTMLParser
 from pathlib import Path
 
 import simmons.config as model_config
@@ -16,6 +17,103 @@ FIXTURES = Path(__file__).parent / "fixtures" / "runs"
 BASE_RUN = FIXTURES / "base" / "sender-a__guard-a"
 WATCHLIST_RUN = FIXTURES / "watchlist" / "all-kinds"
 HOSTILE = "</script><script>alert(1)</script>"
+_HTML_PARSING_SINK = re.compile(
+    r"\b(?:innerHTML|outerHTML|insertAdjacentHTML|DOMParser|"
+    r"createContextualFragment|setHTML|setHTMLUnsafe)\b|"
+    r"\bdocument\s*\.\s*write\b"
+)
+_SAFE_TEXT_INSERTION = re.compile(
+    r"\b[\w$.]+\s*\.\s*textContent\s*=|"
+    r"\b(?:document\s*\.\s*)?createTextNode\s*\("
+)
+_URL_ATTRIBUTES = {
+    "href",
+    "src",
+    "srcset",
+    "imagesrcset",
+    "action",
+    "formaction",
+    "poster",
+    "data",
+    "xlink:href",
+}
+_CSS_EXTERNAL_REFERENCE = re.compile(
+    r"(?:\burl\s*\(\s*['\"]?\s*|"
+    r"@import\b\s+(?:url\s*\(\s*['\"]?\s*)?['\"]?\s*)"
+    r"(?:[a-z][a-z0-9+.-]*:|//)",
+    re.IGNORECASE,
+)
+_EXTERNAL_URL_ATTRIBUTE = re.compile(
+    r"(?:^|[\s,])(?:[a-z][a-z0-9+.-]*:|//)", re.IGNORECASE
+)
+
+
+class _PageSources(HTMLParser):
+    """Collect CSS and URL-bearing attributes from generated static markup."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.css: list[str] = []
+        self.url_attributes: list[str] = []
+        self._in_style = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.casefold() == "style":
+            self._in_style = True
+        for name, value in attrs:
+            if name.casefold() == "style":
+                self.css.append(value or "")
+            if name.casefold() in _URL_ATTRIBUTES:
+                self.url_attributes.append(value or "")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.casefold() == "style":
+            self._in_style = False
+
+    def handle_data(self, data: str) -> None:
+        if self._in_style:
+            self.css.append(data)
+
+
+def _external_css_references(page: str) -> list[str]:
+    sources = _PageSources()
+    sources.feed(page)
+    references: list[str] = []
+    for css in sources.css:
+        css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+        references.extend(match.group(0) for match in _CSS_EXTERNAL_REFERENCE.finditer(css))
+    return references
+
+
+def _assert_no_external_urls(page: str) -> None:
+    sources = _PageSources()
+    sources.feed(page)
+    for value in sources.url_attributes:
+        assert _EXTERNAL_URL_ATTRIBUTE.search(value) is None, f"external URL attribute: {value}"
+    references = _external_css_references(page)
+    assert not references, f"external CSS URL reference: {references[0]}"
+
+
+def _assert_text_only_dom_insertion(page: str) -> None:
+    scripts = re.findall(r"<script>(.*?)</script>", page, re.DOTALL)
+    assert len(scripts) == 1
+    script = scripts[0]
+    sink = _HTML_PARSING_SINK.search(script)
+    assert sink is None, (
+        "HTML-parsing DOM sink in generated JavaScript: "
+        f"{sink.group(0) if sink else ''}"
+    )
+    assert _SAFE_TEXT_INSERTION.search(script), (
+        "generated JavaScript has no textContent/createTextNode insertion"
+    )
+    assert re.search(
+        r"const el=\(tag,text=\"\",cls=\"\"\)=>\{[^}]*\bn\.textContent=String\(text\)",
+        script,
+    ), "the element helper must render text through textContent"
+    assert re.search(
+        r"const add=\(parent,tag,text=\"\",cls=\"\"\)=>\{const n=el\(tag,text,cls\);",
+        script,
+    ), "the add helper must route text through the safe element helper"
 
 
 def _copy_run(source: Path, destination: Path) -> Path:
@@ -229,10 +327,29 @@ def test_hostile_option_is_embedded_as_text_not_markup(tmp_path: Path) -> None:
     assert data["options"][0] == HOSTILE
     assert HOSTILE not in page
     assert r"\u003c/script\u003e\u003cscript\u003ealert(1)\u003c/script\u003e" in page
-    assert "innerHTML" not in page
-    assert not re.search(
-        r'<(?:script|link|img|iframe)\b[^>]+(?:src|href)=["\']https?://', page, re.I
+    _assert_text_only_dom_insertion(page)
+    _assert_no_external_urls(page)
+
+
+def test_css_external_url_scanner_covers_style_blocks_and_attributes() -> None:
+    examples = (
+        '<style>@import url("https://example.invalid/viewer.css");</style>',
+        '<style>@import "//example.invalid/viewer.css";</style>',
+        '<style>.remote{background:url(https://example.invalid/image.svg)}</style>',
+        '<div style="background-image: url(data:image/svg+xml,abc)"></div>',
+        '<div style="background-image: url(//example.invalid/image.svg)"></div>',
     )
+
+    for markup in examples:
+        assert _external_css_references(markup), markup
+
+
+def test_generated_pages_have_no_external_urls_in_markup_or_css(tmp_path: Path) -> None:
+    run = _copy_run(BASE_RUN, tmp_path / "run")
+    run_data, episode_data = _load_run_data(run)
+
+    for page in (render_run_page(run_data), render_episode_page(episode_data[0])):
+        _assert_no_external_urls(page)
 
 
 def test_hostile_strings_in_every_page_data_field_are_html_safe(tmp_path: Path) -> None:
@@ -255,10 +372,8 @@ def test_hostile_strings_in_every_page_data_field_are_html_safe(tmp_path: Path) 
     for page in (run_page, episode_page):
         assert HOSTILE not in page
         assert escaped in page
-        assert "innerHTML" not in page
-        assert not re.search(
-            r'<(?:script|link|img|iframe)\b[^>]+(?:src|href)=["\']https?://', page, re.I
-        )
+        _assert_text_only_dom_insertion(page)
+        _assert_no_external_urls(page)
         assert page.count('<script') == 2
         for api in ("fetch(", "XMLHttpRequest", "WebSocket(", "EventSource(", "sendBeacon("):
             assert api not in page
