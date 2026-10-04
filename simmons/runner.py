@@ -343,8 +343,10 @@ def _provider_instances(models: dict[str, ModelSpec | None]) -> tuple[dict[str, 
             continue
         key = (spec.provider, canonical_json(dict(spec.params)))
         if key not in initialized:
+            # Model params belong to each request (adapters read
+            # request.model.params); they are not adapter constructor options.
             provider_type = get_provider(spec.provider)
-            initialized[key] = provider_type(**dict(spec.params))
+            initialized[key] = provider_type()
         by_role[role] = initialized[key]
         by_provider.setdefault(spec.provider, initialized[key])
     return {**by_provider, **by_role}, by_role

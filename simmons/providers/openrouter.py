@@ -307,8 +307,6 @@ class OpenRouterProvider:
     def build_body(self, request: RoleRequest) -> Mapping[str, Any]:
         """Build a complete request body without network access or mutation."""
         info = self._model_info(request.model.model)
-        if not info.supports_tools:
-            raise PermanentError(f"OpenRouter model {request.model.model} does not support tools")
 
         configured = dict(request.model.params)
         unknown = sorted(set(configured) - _ALLOWED_PARAMS)
@@ -325,6 +323,8 @@ class OpenRouterProvider:
         # some of them lack is still safe to send because require_parameters
         # (always set below) keeps OpenRouter off endpoints that cannot honour it.
         supports, supported_somewhere = route_parameters(info, provider_params)
+        if "tools" not in supports:
+            raise PermanentError(f"OpenRouter model {request.model.model} does not support tools")
         # One routed endpoint is enough: require_parameters keeps OpenRouter on
         # endpoints that accept every parameter sent.
         required_params = {"tools", "tool_choice"}

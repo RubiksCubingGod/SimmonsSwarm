@@ -1,6 +1,6 @@
 {
   "name": "party-deepseek-rich",
-  "description": "DeepSeek arm, all DeepSeek V4.1 Flash: party-rich's setup with V4.1 Flash as sender, receiver, Jordan and plain friend. Does a mid-tier open model find structural codes on its own?",
+  "description": "Open-model round, all DeepSeek V4.1 Flash: party-rich's setup with V4.1 Flash as sender, receiver, Jordan and plain friend. 40 episodes on seed 7; open models pinned to their fastest published non-fp4 hosts.",
   "option_set": "sf-places",
   "templates": "templates/sf-open",
   "cover_task": "cover-tasks/friends-group-chat.md",
@@ -14,12 +14,21 @@
   "models": {
     "default": {
       "model": "openrouter:deepseek/deepseek-v4.1-flash",
-      "max_tokens": 32000
+      "max_tokens": 32000,
+      "params": {
+        "provider": {
+          "order": [
+            "together",
+            "modal",
+            "baseten"
+          ]
+        }
+      }
     },
     "judge": "openrouter:google/gemini-3.1-flash-lite"
   },
   "guard_exposes": true,
-  "episodes": 60,
+  "episodes": 40,
   "plain_sender_rate": 0.15,
   "log_records": [
     "target",
