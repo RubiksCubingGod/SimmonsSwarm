@@ -7,11 +7,13 @@ import pytest
 
 from simmons.config import Config
 from simmons.providers.fake import FakeProvider
+from simmons.providers.openrouter import OpenRouterProvider
 from simmons.records import canonical_json
 from simmons.roles import request_for
 from simmons.types import (
     EpisodeState,
     Inputs,
+    ModelInfo,
     ModelSpec,
     OptionSet,
     Pick,
@@ -32,7 +34,28 @@ KNOBS = (
 )
 KNOB_COMBINATIONS = tuple(product((False, True), repeat=len(KNOBS)))
 MODEL = ModelSpec("fake", "fake:covert", None, 512, {})
+OPENROUTER_MODEL = ModelSpec("openrouter", "openai/gpt-4o-mini", None, 512, {})
 FAKE = FakeProvider()
+
+
+class _Catalog:
+    def lookup(self, slug: str) -> ModelInfo | None:
+        if slug != OPENROUTER_MODEL.model:
+            return None
+        return ModelInfo(
+            slug=slug,
+            context_length=200_000,
+            supports_tools=True,
+            endpoint_prices=(("fixture", 0.0, 0.0),),
+            supported_parameters=frozenset({"tools", "tool_choice", "max_tokens"}),
+        )
+
+
+OPENROUTER = OpenRouterProvider(api_key="", catalog=_Catalog())
+BUILDERS = (
+    pytest.param(FAKE, MODEL, id="fake"),
+    pytest.param(OPENROUTER, OPENROUTER_MODEL, id="openrouter"),
+)
 
 TEMPLATES = {
     "sender.md": "$cover_task\n$options\n$target\n$protected_section\n$log_section\n$partner_section\n$max_message_chars",
@@ -55,11 +78,16 @@ def make_inputs() -> Inputs:
     )
 
 
-def make_send_response(reasoning: str = "SENDER_REASONING_BASELINE") -> RoleResponse:
+def make_send_response(
+    *,
+    reasoning: str = "SENDER_REASONING_BASELINE",
+    response_text: str = "SENDER_RESPONSE_TEXT_BASELINE",
+    assistant_content: str = "SENDER_ASSISTANT_CONTENT_BASELINE",
+) -> RoleResponse:
     message = "SENDER_MESSAGE_BASELINE"
     assistant = {
         "role": "assistant",
-        "content": None,
+        "content": assistant_content,
         "tool_calls": [
             {
                 "id": "send-call-1",
@@ -76,7 +104,7 @@ def make_send_response(reasoning: str = "SENDER_REASONING_BASELINE") -> RoleResp
     }
     return RoleResponse(
         tool_input={"message": message},
-        text=None,
+        text=response_text,
         thinking="PROVIDER_THINKING_PRIVATE_CANARY",
         reasoning_details=tuple(assistant["reasoning_details"]),
         parse_error=None,
@@ -129,9 +157,11 @@ def outbound_bytes(
     state: EpisodeState,
     config: Config,
     inputs: Inputs,
+    builder,
+    model: ModelSpec,
 ) -> bytes:
-    request = request_for(role, state, config, inputs, MODEL)
-    return canonical_json(FAKE.build_body(request)).encode("utf-8")
+    request = request_for(role, state, config, inputs, model)
+    return canonical_json(builder.build_body(request)).encode("utf-8")
 
 
 def can_see(role: str, field: str, config: Config) -> bool:
@@ -167,7 +197,9 @@ def can_see(role: str, field: str, config: Config) -> bool:
         return role == "judge" or (
             role == "sender_debrief" and config.sender_debrief == "informed"
         )
-    if field == "sender_response":
+    if field == "sender_response_text":
+        return False
+    if field in {"sender_assistant_content", "sender_reasoning_details"}:
         return role == "sender_debrief"
     if field == "sender_debrief_mode":
         return role == "sender_debrief"
@@ -180,6 +212,10 @@ def hidden_variants(
     config: Config,
     inputs: Inputs,
 ):
+    assert state.sender_response is not None
+    assert state.sender_response.assistant_message is not None
+    changed_assistant = dict(state.sender_response.assistant_message)
+    changed_assistant["content"] = "sender assistant content changed"
     variants = [
         ("episode kind", "kind", replace(state, kind="control"), config, inputs),
         ("episode number", "episode", replace(state, episode=99), config, inputs),
@@ -198,7 +234,33 @@ def hidden_variants(
         ("guard guess", "guard_guess", replace(state, guard_guess=Pick("option", "Hobart", 2)), config, inputs),
         ("receiver pick", "receiver_pick", replace(state, receiver_pick=Pick("option", "Hobart", 2)), config, inputs),
         ("outcome", "outcome", replace(state, outcome="MISS"), config, inputs),
-        ("sender response", "sender_response", replace(state, sender_response=make_send_response("SENDER_REASONING_CHANGED")), config, inputs),
+        (
+            "outside-tool sender response text",
+            "sender_response_text",
+            replace(state, sender_response=replace(state.sender_response, text="sender response text changed")),
+            config,
+            inputs,
+        ),
+        (
+            "replayed sender assistant content",
+            "sender_assistant_content",
+            replace(
+                state,
+                sender_response=replace(state.sender_response, assistant_message=changed_assistant),
+            ),
+            config,
+            inputs,
+        ),
+        (
+            "replayed sender reasoning details",
+            "sender_reasoning_details",
+            replace(
+                state,
+                sender_response=make_send_response(reasoning="SENDER_REASONING_CHANGED"),
+            ),
+            config,
+            inputs,
+        ),
         ("interview mode", "sender_debrief_mode", state, config.model_copy(update={"sender_debrief": "informed"}), inputs),
     ]
     return [
@@ -213,18 +275,25 @@ def hidden_variants(
     KNOB_COMBINATIONS,
     ids=["".join("1" if value else "0" for value in row) for row in KNOB_COMBINATIONS],
 )
-def test_noninterference_full_outbound_bodies_for_all_32_knob_combinations(knob_values):
+@pytest.mark.parametrize(("builder", "model"), BUILDERS)
+def test_noninterference_full_outbound_bodies_for_all_32_knob_combinations(
+    knob_values, builder, model
+):
     state = make_state()
     config = make_config(knob_values)
     inputs = make_inputs()
 
     for role in ROLES:
-        baseline = outbound_bytes(role, state, config, inputs)
+        baseline = outbound_bytes(role, state, config, inputs, builder, model)
         for label, changed_state, changed_config, changed_inputs in hidden_variants(
             role, state, config, inputs
         ):
-            assert outbound_bytes(role, changed_state, changed_config, changed_inputs) == baseline, (
-                f"{role} outbound body changed when hidden {label} changed; knobs={knob_values}"
+            assert (
+                outbound_bytes(role, changed_state, changed_config, changed_inputs, builder, model)
+                == baseline
+            ), (
+                f"{role} outbound body changed when hidden {label} changed; "
+                f"knobs={knob_values}; builder={type(builder).__name__}"
             )
 
 
@@ -240,7 +309,11 @@ def canary_inputs() -> Inputs:
 
 
 def canary_state() -> EpisodeState:
-    response = make_send_response("SENDER_REASONING_CANARY")
+    response = make_send_response(
+        reasoning="SENDER_REASONING_CANARY",
+        response_text="SENDER_RESPONSE_TEXT_CANARY",
+        assistant_content="SENDER_ASSISTANT_CONTENT_CANARY",
+    )
     return replace(
         make_state(),
         kind="KIND_CANARY",
@@ -265,6 +338,8 @@ def expected_canary_roles(knob_values: tuple[bool, ...]) -> dict[str, set[str]]:
         "ATTEMPT_LOG_CANARY": {"sender", "sender_debrief"},
         "CURRENT_MESSAGE_CANARY": {"guard", "receiver"},
         "SENDER_MESSAGE_BASELINE": {"sender_debrief"},
+        "SENDER_ASSISTANT_CONTENT_CANARY": {"sender_debrief"},
+        "SENDER_RESPONSE_TEXT_CANARY": set(),
         "SENDER_REASONING_CANARY": {"sender_debrief"},
         "PROVIDER_THINKING_PRIVATE_CANARY": set(),
         "ROLE_REASON_PRIVATE_CANARY": set(),
@@ -292,31 +367,40 @@ def expected_canary_roles(knob_values: tuple[bool, ...]) -> dict[str, set[str]]:
     KNOB_COMBINATIONS,
     ids=["".join("1" if value else "0" for value in row) for row in KNOB_COMBINATIONS],
 )
-def test_canaries_reach_only_permitted_roles_for_all_32_knob_combinations(knob_values):
+@pytest.mark.parametrize(("builder", "model"), BUILDERS)
+def test_canaries_reach_only_permitted_roles_for_all_32_knob_combinations(
+    knob_values, builder, model
+):
     state = canary_state()
     config = make_config(knob_values, sender_debrief="informed")
     inputs = canary_inputs()
     expected = expected_canary_roles(knob_values)
 
     for role in ROLES:
-        body = outbound_bytes(role, state, config, inputs).decode("utf-8")
+        body_value = builder.build_body(request_for(role, state, config, inputs, model))
+        body = canonical_json(body_value)
         for canary, allowed_roles in expected.items():
             assert (canary in body) == (role in allowed_roles), (
                 f"{canary} visibility was wrong for {role}; knobs={knob_values}"
             )
 
         if role == "sender_debrief":
-            request = request_for(role, state, config, inputs, MODEL)
-            body_value = FAKE.build_body(request)
             messages = body_value["messages"]
             assert [message["role"] for message in messages] == ["system", "user", "assistant", "tool"]
             assert messages[2] == state.sender_response.assistant_message
             assert messages[3]["tool_call_id"] == state.sender_response.tool_call_id
             assert "OUTCOME_CANARY" in messages[3]["content"]
+            assistant_content_canary = "SENDER_ASSISTANT_CONTENT_CANARY"
+            assert assistant_content_canary in canonical_json(messages[2])
+            assert all(
+                assistant_content_canary not in canonical_json(message)
+                for index, message in enumerate(messages)
+                if index != 2
+            )
+            assert "SENDER_RESPONSE_TEXT_CANARY" not in body
             assert "P2_CANARY" not in body and "PLAIN_PROMPT_CANARY" not in body
         elif role == "guard":
-            request = request_for(role, state, config, inputs, MODEL)
-            user_content = FAKE.build_body(request)["messages"][-1]["content"]
+            user_content = body_value["messages"][-1]["content"]
             if config.guard_sees_sender_prompt:
                 assert "<sender_prompt>\nP1_CANARY\n</sender_prompt>" in user_content
             else:

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from simmons.config import Config
 from simmons.render import render
-from simmons.types import EpisodeState, Inputs, OptionSet, Target
+from simmons.types import EpisodeState, Inputs, OptionSet, Pick, Target
 from simmons.visibility import build_view
 
 
@@ -59,3 +61,28 @@ def test_rendered_sections_cannot_extend_the_typed_view():
     guard = replace(guard, rendered_sections={"target": "secret"})
     with pytest.raises(ValueError, match="exceed the guard view"):
         render("safe", guard)
+
+
+@pytest.mark.parametrize(
+    "role",
+    ("sender", "sender_debrief", "guard", "receiver", "judge"),
+)
+@pytest.mark.parametrize(
+    "protected_count",
+    (None, 1),
+    ids=("without-watchlist", "with-watchlist"),
+)
+def test_plain_target_section_is_rejected_for_every_other_role(role, protected_count):
+    state = _state()
+    if role == "judge":
+        state = replace(state, receiver_pick=Pick("option", "Sydney", 1))
+    if protected_count is not None:
+        state = replace(
+            state,
+            protected=frozenset({1}),
+        )
+    config = Config(name="render-boundary", protected_count=protected_count)
+    view = build_view(role, state, config, _inputs())
+
+    with pytest.raises(KeyError, match="plain_target_section"):
+        render("$plain_target_section", view)
