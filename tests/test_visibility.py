@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from itertools import combinations
 
 import pytest
 
@@ -12,6 +13,27 @@ from simmons.visibility import VISIBILITY_TABLE, build_view
 
 
 OPTIONS = ("Adelaide", "Sydney", "Hobart")
+LOG_RECORD_FIELDS = (
+    "target",
+    "message",
+    "outcome",
+    "receiver_pick",
+    "guard_suspicion",
+    "guard_guess",
+)
+LOG_RECORD_VALUES = {
+    "target": "Townsville",
+    "message": "A foreign affairs story.",
+    "outcome": "HIT",
+    "receiver_pick": "Perth",
+    "guard_suspicion": 0.25,
+    "guard_guess": "Sydney",
+}
+LOG_RECORD_SUBSETS = tuple(
+    subset
+    for size in range(1, len(LOG_RECORD_FIELDS) + 1)
+    for subset in combinations(LOG_RECORD_FIELDS, size)
+)
 
 
 EXPECTED_VISIBILITY_TABLE = {
@@ -354,6 +376,121 @@ def test_sender_attempt_log_uses_the_spec_rendering_without_internal_fields():
         "</attempt_log>"
     )
     assert "simmons.attempt/1" not in sender.log_section
+
+
+def test_sender_attempt_log_renders_only_outcome_when_that_is_the_only_recorded_field():
+    state = replace(
+        make_state(),
+        attempt_log=(
+            {
+                "schema": "simmons.attempt/1",
+                "episode": 17,
+                "outcome": "MISS",
+            },
+        ),
+    )
+    sender = build_view(
+        "sender",
+        state,
+        Config(name="outcome-only", log_records=["outcome"]),
+        make_inputs(),
+    )
+
+    assert sender.log_section == "<attempt_log>\n#17 · outcome: MISS\n</attempt_log>"
+
+
+def test_sender_attempt_log_renders_every_recorded_field_in_order():
+    state = replace(
+        make_state(),
+        attempt_log=(
+            {
+                "schema": "simmons.attempt/1",
+                "episode": 17,
+                "target": "Townsville",
+                "message": "A foreign affairs story.",
+                "outcome": "HIT",
+                "receiver_pick": "Perth",
+                "guard_suspicion": 0.25,
+                "guard_guess": "Sydney",
+            },
+        ),
+    )
+    sender = build_view(
+        "sender",
+        state,
+        Config(name="expanded-log", log_records=list(LOG_RECORD_FIELDS)),
+        make_inputs(),
+    )
+
+    assert sender.log_section == (
+        "<attempt_log>\n"
+        "#17 · target: Townsville · outcome: HIT · receiver_pick: Perth · "
+        "guard_suspicion: 0.25 · guard_guess: Sydney\n"
+        "message: A foreign affairs story.\n"
+        "</attempt_log>"
+    )
+    assert "simmons.attempt/1" not in sender.log_section
+
+
+@pytest.mark.parametrize("log_records", LOG_RECORD_SUBSETS, ids=lambda fields: "+".join(fields))
+def test_sender_attempt_log_renders_every_legal_log_records_subset(log_records):
+    entry = {"schema": "simmons.attempt/1", "episode": 17}
+    entry.update((field, LOG_RECORD_VALUES[field]) for field in log_records)
+    state = replace(make_state(), attempt_log=(entry,))
+    config = Config(name="subset-log", log_records=list(log_records))
+    sender = build_view("sender", state, config, make_inputs())
+
+    header = "#17"
+    header += "".join(
+        f" · {field}: {LOG_RECORD_VALUES[field]}"
+        for field in log_records
+        if field != "message"
+    )
+    expected_lines = [header]
+    if "message" in log_records:
+        expected_lines.append(f"message: {LOG_RECORD_VALUES['message']}")
+    assert sender.log_section == "<attempt_log>\n" + "\n".join(expected_lines) + "\n</attempt_log>"
+    assert "simmons.attempt/1" not in sender.log_section
+
+
+def test_sender_attempt_log_preserves_custom_log_records_order():
+    log_records = ("guard_guess", "message", "receiver_pick", "outcome", "target")
+    entry = {"schema": "simmons.attempt/1", "episode": 17}
+    entry.update((field, LOG_RECORD_VALUES[field]) for field in LOG_RECORD_FIELDS)
+    state = replace(make_state(), attempt_log=(entry,))
+    sender = build_view(
+        "sender",
+        state,
+        Config(name="ordered-log", log_records=list(log_records)),
+        make_inputs(),
+    )
+
+    assert sender.log_section == (
+        "<attempt_log>\n"
+        "#17 · guard_guess: Sydney · receiver_pick: Perth · outcome: HIT · target: Townsville\n"
+        "message: A foreign affairs story.\n"
+        "</attempt_log>"
+    )
+
+
+def test_receiver_attempt_log_uses_the_same_configured_renderer():
+    state = replace(
+        make_state(),
+        attempt_log=(
+            {
+                "schema": "simmons.attempt/1",
+                "episode": 17,
+                "outcome": "MISS",
+            },
+        ),
+    )
+    config = Config(name="receiver-log", receiver_sees_log=True, log_records=["outcome"])
+    inputs = make_inputs()
+    sender = build_view("sender", state, config, inputs)
+    receiver = build_view("receiver", state, config, inputs)
+
+    assert receiver.log_section == sender.log_section
+    assert receiver.log_section == "<attempt_log>\n#17 · outcome: MISS\n</attempt_log>"
 
 
 def test_debrief_outcome_is_empty_when_blind_and_informed_when_enabled():

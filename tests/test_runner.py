@@ -97,6 +97,27 @@ def _comparable_episode(record: dict) -> dict:
     return result
 
 
+@pytest.mark.parametrize("models", [{"sender": "fake:covert"}, {"guard": "fake:random"}])
+def test_summary_labels_use_resolved_framework_model_defaults(models: dict[str, str]):
+    config = Config(name="partial-models", models=models)
+    stored_config = config.model_dump(mode="python")
+    stored_config.update({"ids": {}, "protocol_version": 1})
+    summary = runner._summary_record(
+        {"run_id": "review", "experiment": "partial-models", "status": "complete"},
+        stored_config,
+        [],
+        b"",
+    )
+    resolved = resolve_models(config)
+    expected = {
+        role: f"{Path(getattr(config, f'{role}_prompt')).stem} · "
+        f"{resolved[role].model.rsplit('/', 1)[-1]}"
+        for role in ("sender", "guard")
+    }
+
+    assert summary["labels"] == expected
+
+
 def test_smoke_matches_golden_and_fake_runs_continue_trajectory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

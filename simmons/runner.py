@@ -433,19 +433,18 @@ def _summary_record(
         run_record.get("episodes_planned", config.get("episodes", len(episode_records)))
     )
     metrics_value["counts"]["done"] = len(episode_records)
-    models = config.get("models", {})
+    model_config = Config.model_validate(
+        {field: value for field, value in config.items() if field in Config.model_fields}
+    )
+    resolved_models = resolve_models(model_config)
     labels = {}
     for role in ("sender", "guard"):
         prompt = config.get(f"{role}_prompt")
         prompt_label = Path(prompt).stem if isinstance(prompt, str) else role
-        model = models.get(role, models.get("default")) if isinstance(models, Mapping) else models
-        if isinstance(model, Mapping):
-            model = model.get("model", model.get("id", ""))
         model_label = ""
-        if isinstance(model, str) and model:
-            model_value = model
-            _, separator, provider_model = model_value.partition(":")
-            model_label = (provider_model if separator else model_value).rsplit("/", 1)[-1]
+        model = resolved_models[role]
+        if model is not None:
+            model_label = model.model.rsplit("/", 1)[-1]
         labels[role] = f"{prompt_label} · {model_label}" if model_label else prompt_label
     return {
         "schema": "simmons.summary/1",
