@@ -350,7 +350,7 @@ def test_estimate_counts_sender_exit_interview_only_when_enabled():
     assert informed > off
 
 
-def test_real_estimate_uses_catalog_prices_and_counts_the_default_debrief():
+def test_real_estimate_uses_catalog_prices_and_counts_an_enabled_debrief():
     class _Catalog:
         def __init__(self, endpoints):
             self.endpoints = endpoints
@@ -366,6 +366,7 @@ def test_real_estimate_uses_catalog_prices_and_counts_the_default_debrief():
 
     config = Config(
         name="real-estimate",
+        sender_debrief="blind",
         models={
             "default": ModelSpecConfig(
                 model="openrouter:vendor/model",

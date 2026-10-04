@@ -88,7 +88,7 @@ def test_frozen_types_and_exit_interview_contract():
         get_type_hints(view_type)["protected_count"] == int | None for view_type in view_types
     )
 
-    assert Config(name="contract").sender_debrief == "blind"
+    assert Config(name="contract").sender_debrief == "off"
     for mode in ("off", "blind", "informed"):
         assert Config(name="contract", sender_debrief=mode).sender_debrief == mode
 

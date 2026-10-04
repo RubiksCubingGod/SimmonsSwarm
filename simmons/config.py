@@ -181,7 +181,7 @@ class Config(BaseModel):
     log_window: int | None = 20
     wave_size: int = Field(default=1, ge=1)
     shadow_decode: bool = True
-    sender_debrief: Literal["off", "blind", "informed"] = "blind"
+    sender_debrief: Literal["off", "blind", "informed"] = "off"
     max_cost_usd: float = 20.0
 
     @field_validator("log_window")

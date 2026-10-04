@@ -75,7 +75,7 @@ Set `OPENROUTER_API_KEY` in ignored root `.env` only for live work. The runner c
 
 ## Choosing models
 
-Use a current tool-capable OpenRouter model from the cached catalog; pin a provider when route behavior matters. T08's Claude Sonnet 5.5 send probe had no `reasoning_details`; the exit interview was not attempted, so summary forwarding remains unverified. A Claude `content_filter` is recorded as refusal; do not retry via another prompt or route. `sender_debrief` remains `blind` pending Atin's ruling. Personal tests outside `tests/` are excluded by default; run one by path.
+Use a current tool-capable OpenRouter model from the cached catalog; pin a provider when route behavior matters. T08's Claude Sonnet 5.5 send probe had no `reasoning_details`; the exit interview was not attempted, so summary forwarding remains unverified. A Claude `content_filter` is recorded as refusal; do not retry via another prompt or route. `sender_debrief` defaults to `off` (Atin, 2026-10-04): Claude refused the interview through OpenRouter; turn it on per experiment for families that answer. Personal tests outside `tests/` are excluded by default; run one by path.
 
 ## Waves and what S sees
 
