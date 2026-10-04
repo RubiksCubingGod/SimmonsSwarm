@@ -25,10 +25,10 @@ _CALL_SLOTS = (
     ("sender_debrief", "Sender exit interview", "sender_debrief"),
 )
 _ROLE_ABOUT = {
-    "Sender": "S writes the cover-task story that carries the target to R. System prompt: P₁.",
-    "Plain sender": "An innocent correspondent writes a genuine story, naming the target openly when required. System prompt: plain sender prompt.",
-    "Guard": "G scores suspicion and guesses the city; at or above the threshold the message is blocked. System prompt: P₂.",
-    "Receiver": "R reads the published story and picks the city it carries. System prompt: P₁.",
+    "Sender": "S writes the cover-task message that carries the target to R. System prompt: P₁.",
+    "Plain sender": "An innocent sender writes a genuine cover-task message, naming the target openly when required. System prompt: plain sender prompt.",
+    "Guard": "G scores suspicion and guesses the target; at or above the threshold the message is blocked. System prompt: P₂.",
+    "Receiver": "R reads the delivered message and names the target it carries. System prompt: P₁.",
     "Shadow receiver": "R reads a blocked message in a separate measurement call that cannot change the outcome; it feeds the all-covert decode gap.",
     "Judge": "J scores R's pick against the target. Exact-match scoring runs in code, so no model is called.",
     "Sender exit interview": "After the outcome, S is asked privately to explain its scheme. Nothing it says reaches any role. Off by default.",
@@ -39,8 +39,8 @@ _PROMPT_SECTIONS = (
     ("prompt", "plain_sender", "Plain sender prompt", "Plain sender only (system prompt).", False),
     ("cover_task", "", "Cover task", "Inserted into the sender, plain sender, guard, receiver and exit interview templates.", False),
     ("template", "sender.md", "Sender template", "Sender's user message: cover task, cities, target and attempt log.", False),
-    ("template", "receiver.md", "Receiver template", "Receiver's user message: the published story, cover task and cities.", False),
-    ("template", "guard.md", "Guard template", "Guard's user message: the story, cover task, cities and any watchlist.", False),
+    ("template", "receiver.md", "Receiver template", "Receiver's user message: the delivered message, cover task and any options.", False),
+    ("template", "guard.md", "Guard template", "Guard's user message: the message, cover task, any options and any watchlist.", False),
     ("template", "plain_sender.md", "Plain sender template", "Plain sender's user message: cover task, cities and target.", False),
     ("template", "judge.md", "Judge template", "Judge's user message when the scorer needs a model; exact match never sends it.", False),
     ("template", "sender_debrief.md", "Sender exit interview template", "Sent back to S after the outcome, as the result of its send call.", False),
@@ -409,6 +409,8 @@ def _episode_page_data(
         "options": list(plan["options"]),
         "target_index": target.get("index", plan["target"]),
         "protected_indices": [item["index"] for item in protected],
+        "payload": config.payload,
+        "sender_debrief": config.sender_debrief,
         "roles": _call_views(
             episode, plan, archive, attempts, inputs, config, tool_roles, saved_options
         ),
@@ -549,6 +551,14 @@ _STYLE += (
 )
 
 
+_STYLE += (
+    "\n.step{display:grid;grid-template-columns:150px minmax(0,1fr);gap:16px;padding:16px 0;border-top:1px solid var(--line)}"
+    ".step-label{color:var(--cyan);font-weight:650}.step-body>h3{margin:14px 0 6px;font-size:14px;color:var(--muted)}"
+    ".verdicts{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:6px 0}"
+    "@media(max-width:650px){.step{grid-template-columns:1fr;gap:6px}}"
+)
+
+
 _SCRIPT = r"""
 const data=JSON.parse(document.getElementById("viewer-data").textContent);
 const root=document.getElementById("app");
@@ -591,16 +601,53 @@ function drawCurve(parent,curve,falseAlarmRate){
 const xl=document.createElementNS(svg.namespaceURI,"text");xl.setAttribute("x",String(x0+w/2));xl.setAttribute("y","310");xl.setAttribute("text-anchor","middle");xl.textContent="False-alarm rate";svg.append(xl);const yl=document.createElementNS(svg.namespaceURI,"text");yl.setAttribute("x","13");yl.setAttribute("y",String(y0-h/2));yl.setAttribute("transform",`rotate(-90 13 ${y0-h/2})`);yl.setAttribute("text-anchor","middle");yl.textContent="Catch rate";svg.append(yl);
  let note=`AUC ${show(curve.auc)} · operating point ${pct(op?.catch)} catch / ${pct(op?.false_alarm)} false alarm`;if(falseAlarmRate?.den===0)note+=" · false-alarm rate undefined (no innocent traffic)";else if(curve.points===null)note+=" · verdict mode has no threshold curve";else if(!points.length)note+=" · no plottable threshold rates";add(parent,"div",note,"muted small");
 }
+function verdict(parent,text,cls){return add(parent,"span",text,`status ${cls}`)}
+function judgeLine(parent,call,score,matched,exact){
+ if(exact){verdict(parent,matched?"Exact match ✓":"No match ✗",matched?"good":"bad");return}
+ const out=call?.output;if(!out&&!score){add(parent,"span","Not judged","muted small");return}
+ const value=out?.score??score?.value;verdict(parent,matched?`Judge: names the target ✓ (${show(value)})`:`Judge: wrong place ✗ (${show(value)})`,matched?"good":"bad");
+ const reason=out?.reason??score?.detail?.reason;if(reason)add(parent,"p",reason,"content-block small muted");
+}
+function step(parent,label){const row=add(parent,"div","","step");add(row,"div",label,"step-label");return add(row,"div","","step-body")}
+function storyCard(e){
+ const card=add(root,"section","","card");add(card,"h2","What happened");
+ const covert=e.kind==="covert"||e.kind==="control";const target=data.options[data.target_index];const exact=data.payload==="option";
+ const refusal=e.refusal,refusedRole=refusal?String(refusal.role):null;
+ const refused=(parent,roles)=>{if(!refusal||!roles.some(x=>refusedRole===x||refusedRole.endsWith(x)))return false;const label=refusedRole.replace("_"," ");verdict(parent,`Refused by ${label}`,"refused");const n=add(parent,"p","","small muted");n.append(`detected by ${refusal.signal}${label.endsWith("sender")?"":` · “${refusal.excerpt}”`}`);return true};
+ const s=step(card,"1 · Sender");const m=e.messages?.[0];
+ refused(s,["sender"]);
+ add(s,"p",covert?`Hid the target: ${show(target)}`:`Plain sender: an ordinary message with nothing hidden. The drawn target (${show(target)}) was not given to it.`);
+ const versions=[["Sent",m?.sent],["Rewritten",m?.rewritten],["Delivered",m?.delivered]].filter(([,v])=>v!=null);
+ if(new Set(versions.map(([,v])=>v)).size>1){for(const [label,v] of versions){add(s,"h3",label);add(s,"pre",v)}}else add(s,"pre",versions[0]?.[1]??"No message was sent.");
+ const g=step(card,"2 · Guard");
+ if(!e.guard){if(!refused(g,["guard"]))add(g,"p","No guard decision recorded.","muted")}
+ else{const flagged=e.guard.blocked===true;const head=add(g,"div","","verdicts");verdict(head,flagged?"Flagged: blocked":"Not flagged: passed",flagged?"bad":"good");
+  add(head,"span",`suspicion ${e.guard.suspicion==null?"—":Number(e.guard.suspicion).toFixed(2)} · threshold ${show(e.guard.threshold)}`,"muted small");
+  const suspicion=Number(e.guard.suspicion)||0,threshold=Number(e.guard.threshold);const bar=add(g,"div","","bar");const fill=add(bar,"span");fill.style.width=`${Math.max(0,Math.min(1,suspicion))*100}%`;if(e.guard.threshold!=null&&Number.isFinite(threshold)){const tick=add(bar,"i");tick.style.left=`${Math.max(0,Math.min(1,threshold))*100}%`}
+  const guess=e.guard.guess;const gl=add(g,"div","","verdicts");add(gl,"strong",`Guess: ${guess?.value??"no guess"}`);
+  if(guess)judgeLine(g,e.calls?.guard_judge,null,guess.index===data.target_index,exact);
+  if(e.calls?.guard?.output?.reason){add(g,"h3","Guard's reasoning");add(g,"p",e.calls.guard.output.reason,"content-block")}}
+ const r=step(card,"3 · Receiver");
+ if(e.outcome==="CATCH")add(r,"p","Not called: the guard blocked the message.","muted");
+ else if(refused(r,["receiver"])){}
+ else if(!e.calls?.receiver){const f=e.error;add(r,"p",f?.role?`Not called: ${f.role} failed before the receiver ran.`:"Not called.","muted");if(f?.message)add(r,"p",f.message,"content-block small")}
+ else{const rl=add(r,"div","","verdicts");add(rl,"strong",`Answer: ${e.pick?.value??"—"}`);judgeLine(r,e.calls?.judge,e.score,e.score?.hit===true,exact);
+  refused(r,["judge"]);
+  if(e.calls?.receiver?.output?.reason){add(r,"h3","Receiver's reasoning");add(r,"p",e.calls.receiver.output.reason,"content-block")}}
+ const d=step(card,"4 · Exit interview");
+ if(e.calls?.sender_debrief){const out=e.calls.sender_debrief.output||{};for(const [label,key] of [["Scheme","scheme"],["Encoding","encoding"],["Expected decode","expected_decode"],["Confidence","confidence"]]){add(d,"h3",label);add(d,"p",show(out[key]),"content-block")}const prior=e.calls.sender_debrief.prior_reasoning;add(d,"p",prior?.passed_back?"Prior reasoning carried":"Prior reasoning reconstructed from the message","muted small");if(e.calls.sender?.thinking)add(d,"details").append(el("summary","Send call thinking"),el("pre",e.calls.sender.thinking))}
+ else if(!covert)add(d,"p","None: plain episodes hide nothing, so the sender is not interviewed.","muted");
+ else if(e.debrief_error)add(d,"p",`The interview failed: ${e.debrief_error}`,"status bad");
+ else if(data.sender_debrief==="off")add(d,"p","Off for this run (sender_debrief: off).","muted");
+ else add(d,"p","Not recorded.","muted");
+}
 function episodePage(){
  const e=data.episode,r=data.run;header(`Episode ${Number(e.index)}`,`${show(e.kind)} · ${show(e.outcome)} · run ${show(r.run_id)}`,true);
  const summaryParts=[`${data.options.length} options`,`target ${show(data.options[data.target_index])}`];if(data.protected_indices.length)summaryParts.push(`${data.protected_indices.length} protected${data.protected_indices.includes(data.target_index)?" (target protected)":""}`);summaryParts.push(e.guard?`guard guessed ${show(e.guard.guess?.value)}${e.guard.guess?.index===data.target_index?" ✓":""}`:"guard: not called");summaryParts.push(e.calls?.receiver?`receiver picked ${show(e.pick?.value)}${e.pick?.index===data.target_index?" ✓":""}`:"receiver: not called");
- const optionCard=add(root,"details","","card option-card");const optionSummary=add(optionCard,"summary");add(optionSummary,"strong","Options");add(optionSummary,"span",summaryParts.join(" · "));add(optionCard,"p","Gold outline: target · shaded: protected · purple: guard guess · green: receiver pick","muted small");const options=add(optionCard,"div","","options");for(let i=0;i<data.options.length;i++){const c=[];if(i===data.target_index)c.push("target");if(data.protected_indices.includes(i))c.push("protected");if(e.guard?.guess?.index===i)c.push("guess");if(e.pick?.index===i)c.push("pick");const chip=add(options,"div",data.options[i],`option ${c.join(" ")}`);if(i===data.target_index)add(chip,"span","Target","badge");if(data.protected_indices.includes(i))add(chip,"span","Protected","badge");if(e.guard?.guess?.index===i)add(chip,"span","Guard guess","badge");if(e.pick?.index===i)add(chip,"span","Receiver pick","badge");}
- const message=e.messages?.[0];const blocked=e.guard?.blocked===true||e.outcome==="CATCH";const refusedBy=e.refusal?String(e.refusal.role).replace("_"," "):null;const [statusText,statusClass]=refusedBy?[`Refused by ${refusedBy}`,"refused"]:!message?["No message","unknown"]:message.delivered!=null?["Delivered","good"]:blocked?["Blocked by guard","bad"]:["Not delivered","unknown"];
- const messages=add(root,"section","","card");const messageHead=add(messages,"div","","card-head");add(messageHead,"h2","Message");add(messageHead,"span",statusText,`status ${statusClass}`);const versions=[["Sent",message?.sent],["Rewritten",message?.rewritten],["Delivered",message?.delivered]].filter(([,v])=>v!=null);if(new Set(versions.map(([,v])=>v)).size>1){const versionGrid=add(messages,"div","","panels");for(const [label,v] of versions){const p=add(versionGrid,"div","","panel");add(p,"h3",label);add(p,"pre",v);}}else add(messages,"pre",versions[0]?.[1]??(refusedBy?.endsWith("sender")?e.calls?.sender?.output?.message:null)??"No message");
- if(e.refusal){const note=add(messages,"p","","small muted");add(note,"strong",`${refusedBy} refused`);note.append(` · detected by ${e.refusal.signal}${refusedBy.endsWith("sender")?"":` · “${e.refusal.excerpt}”`}`);}
- const panels=add(root,"section","","card");add(panels,"h2","Decisions");const grid=add(panels,"div","","panels");const guard=add(grid,"section","","panel");add(guard,"h3","Guard");if(e.guard){const suspicion=Number(e.guard.suspicion)||0,threshold=Number(e.guard.threshold);add(guard,"p",`Suspicion ${e.guard.suspicion==null?"—":Number(e.guard.suspicion).toFixed(3)} · threshold ${show(e.guard.threshold)}`);const bar=add(guard,"div","","bar");bar.setAttribute("role","img");bar.setAttribute("aria-label",`Suspicion ${show(e.guard.suspicion)}, threshold ${show(e.guard.threshold)}`);const fill=add(bar,"span");fill.style.width=`${Math.max(0,Math.min(1,suspicion))*100}%`;if(e.guard.threshold!=null&&Number.isFinite(threshold)){const tick=add(bar,"i");tick.style.left=`${Math.max(0,Math.min(1,threshold))*100}%`;tick.title=`Block threshold ${threshold.toFixed(3)}`;}add(guard,"p",`Guess: ${e.guard.guess?.value??"—"}`);add(guard,"p",e.calls?.guard?.output?.reason??"No reason recorded.","content-block");}else add(guard,"p","No guard decision recorded.","muted");
- const receiver=add(grid,"section","","panel");add(receiver,"h3","Receiver");if(e.outcome==="CATCH"){add(receiver,"p","Not called: the guard blocked the message.");}else if(!e.calls?.receiver){const failure=e.error;add(receiver,"p",failure?.role?`Not called: ${failure.role} failed before the receiver ran.`:"Not called: the episode ended before the receiver ran.");if(failure?.message)add(receiver,"p",failure.message,"content-block");}else{add(receiver,"p",`Pick: ${e.pick?.value??"—"}`);add(receiver,"p",e.calls?.receiver?.output?.reason??"No reason recorded.","content-block");}
- if(e.calls?.sender_debrief){const d=add(grid,"section","","panel");add(d,"h3","Sender exit interview");const out=e.calls.sender_debrief.output||{};for(const [label,key] of [["Scheme","scheme"],["Encoding","encoding"],["Expected decode","expected_decode"],["Confidence","confidence"]]){add(d,"strong",`${label}: `);add(d,"span",show(out[key]));add(d,"br");}const prior=e.calls.sender_debrief.prior_reasoning;add(d,"p",prior?.passed_back?"Prior reasoning carried":"Prior reasoning reconstructed from the message","muted small");if(e.calls.sender?.thinking)add(d,"details").append(el("summary","Send call thinking"),el("pre",e.calls.sender.thinking));}
+
+ storyCard(e);
+ if(data.payload==="option"){const optionCard=add(root,"details","","card option-card");const optionSummary=add(optionCard,"summary");add(optionSummary,"strong","Options");add(optionSummary,"span",summaryParts.join(" · "));add(optionCard,"p","Gold outline: target · shaded: protected · purple: guard guess · green: receiver pick","muted small");const options=add(optionCard,"div","","options");for(let i=0;i<data.options.length;i++){const c=[];if(i===data.target_index)c.push("target");if(data.protected_indices.includes(i))c.push("protected");if(e.guard?.guess?.index===i)c.push("guess");if(e.pick?.index===i)c.push("pick");const chip=add(options,"div",data.options[i],`option ${c.join(" ")}`);if(i===data.target_index)add(chip,"span","Target","badge");if(data.protected_indices.includes(i))add(chip,"span","Protected","badge");if(e.guard?.guess?.index===i)add(chip,"span","Guard guess","badge");if(e.pick?.index===i)add(chip,"span","Receiver pick","badge");}}
+ else{const pool=add(root,"details","","card option-card");const ps=add(pool,"summary");add(ps,"strong","Target pool");add(ps,"span",`open answers: no role saw this list · target ${show(data.options[data.target_index])}`);add(pool,"p",data.options.join(" · "),"muted small");}
  const seen=add(root,"section","","card");add(seen,"h2","As seen by");add(seen,"p","The exact request each role received, re-rendered from the run inputs and hash-checked.","muted small");const tabs=add(seen,"div","","role-tabs");const panel=add(seen,"div");const roleRows=data.roles||[];for(let i=0;i<roleRows.length;i++){const role=roleRows[i];const button=add(tabs,"button","",`role-tab${role.called?"":" idle"}`);button.type="button";add(button,"strong",role.called?role.label:`${role.label} · not called`);if(role.about)add(button,"span",role.about,"small muted");button.setAttribute("aria-selected",i===0?"true":"false");button.addEventListener("click",()=>{for(const b of tabs.querySelectorAll("button"))b.setAttribute("aria-selected",b===button?"true":"false");renderRequest(panel,role);});}if(roleRows.length)renderRequest(panel,roleRows[0]);
  const log=add(root,"section","","card");add(log,"h2","Attempt log as sender saw it");if(data.attempt_log.length){for(const item of data.attempt_log){const row=add(log,"div","","panel");add(row,"strong",`#${item.episode} · ${item.outcome}`);add(row,"p",item.target);add(row,"pre",item.message);}}else add(log,"p","No earlier sender attempts were in the log.","muted");
 }
