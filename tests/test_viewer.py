@@ -109,16 +109,25 @@ def test_run_page_labels_configured_model_when_role_was_not_called(tmp_path: Pat
             }
         },
         [{"role": "sender", "model": {"provider": "fake", "model": "covert"}}],
-        {"models": {"sender": "fake:covert", "default": "historical-alias"}},
+        {
+            "models": {
+                "sender": "fake:covert",
+                "default": "historical-alias",
+                "judge": "historical-judge",
+            }
+        },
     )
     run_data["models"] = models
 
     page = render_run_page(run_data)
 
     assert models["plain_sender"] == {"configured": "historical-alias"}
-    assert models["judge"] is None
+    assert models["judge"] == {"configured": "historical-judge"}
     assert _page_data_from_html(page)["models"]["plain_sender"] == {
         "configured": "historical-alias"
+    }
+    assert _page_data_from_html(page)["models"]["judge"] == {
+        "configured": "historical-judge"
     }
     assert "configured; no call recorded" in page
 

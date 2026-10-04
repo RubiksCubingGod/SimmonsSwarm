@@ -129,19 +129,21 @@ def _recorded_models(
 
     configured = raw_config.get("models")
     for role in _MODEL_ROLES:
-        if models[role] is not None or role == "judge":
+        if models[role] is not None:
             continue
         if isinstance(configured, str):
-            value: Any = configured
+            value: Any = None if role == "judge" else configured
         elif isinstance(configured, Mapping):
             if role in configured:
                 value = configured[role]
+            elif role == "judge":
+                value = None
             elif "default" in configured:
                 value = configured["default"]
             else:
                 value = "framework default"
         else:
-            value = "framework default"
+            value = None if role == "judge" else "framework default"
         if isinstance(value, Mapping):
             value = value.get("model")
         if isinstance(value, str) and value:
