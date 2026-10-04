@@ -1,5 +1,5 @@
 pivot hit_rate, false_alarm_rate · rows sender · cols guard · split arena
-held: 40 fields · also varies: none
+held: 41 fields · also varies: none
 
 id.arena: 50562993 · smoke-100 · cover-task · 100 options, watchlist 10
 plans: no

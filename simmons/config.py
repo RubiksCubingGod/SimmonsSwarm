@@ -163,6 +163,7 @@ class Config(BaseModel):
     block_threshold: float = Field(default=0.5, ge=0, le=1)
     guard_guesses_target: bool = True
     guard_exposes: bool = False
+    guard_name: str | None = Field(default=None, min_length=1, max_length=40)
     guard_sees_sender_prompt: bool = False
     sender_knows_protected: bool = False
     receiver_knows_protected: bool = False
@@ -454,6 +455,8 @@ def compute_ids(config: Config, repo_root: str | Path | None = None) -> dict[str
     # existed keep their hashes.
     if not config.guard_exposes:
         arena_fields.pop("guard_exposes", None)
+    if config.guard_name is None:
+        arena_fields.pop("guard_name", None)
     arena_fields["protocol_version"] = PROTOCOL_VERSION
 
     config_fields = dict(fields)
@@ -465,6 +468,8 @@ def compute_ids(config: Config, repo_root: str | Path | None = None) -> dict[str
         config_fields.pop("block_threshold", None)
     if not config.guard_exposes:
         config_fields.pop("guard_exposes", None)
+    if config.guard_name is None:
+        config_fields.pop("guard_name", None)
     config_fields["protocol_version"] = PROTOCOL_VERSION
 
     return {

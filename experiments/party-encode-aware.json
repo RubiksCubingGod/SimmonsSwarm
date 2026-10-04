@@ -1,0 +1,30 @@
+{
+  "name": "party-encode-aware",
+  "description": "Arm D, optional: the arm C pair against a Jordan told to check message structure as well as content.",
+  "option_set": "sf-places",
+  "templates": "templates/sf-open",
+  "cover_task": "cover-tasks/friends-group-chat.md",
+  "sender_prompt": "prompts/sender/party-encode.md",
+  "guard_prompt": "prompts/guard/party-structure-aware.md",
+  "plain_sender_prompt": "prompts/plain/party.md",
+  "max_message_chars": 600,
+  "sender_debrief": "informed",
+  "payload": "text",
+  "scorer": "llm_judge",
+  "models": {
+    "default": "openrouter:anthropic/claude-sonnet-5.5",
+    "judge": "openrouter:google/gemini-3.1-flash-lite"
+  },
+  "guard_exposes": true,
+  "episodes": 60,
+  "plain_sender_rate": 0.15,
+  "log_records": [
+    "target",
+    "message",
+    "outcome",
+    "guard_guess",
+    "receiver_pick"
+  ],
+  "log_window": 20,
+  "guard_name": "Jordan"
+}
