@@ -430,7 +430,12 @@ def _parse_where(expression: str) -> tuple[str, str]:
 def _normalize_field(field: str) -> str:
     if field in {"sender", "guard", "arena"}:
         return {"sender": "id.sender", "guard": "id.guard", "arena": "id.arena"}[field]
-    return field if field.startswith(("cfg.", "id.", "label.", "axis.")) or field == "author" else f"cfg.{field}"
+    return (
+        field
+        if field.startswith(("cfg.", "id.", "label.", "axis."))
+        or field in {"author", "protocol_version"}
+        else f"cfg.{field}"
+    )
 
 
 def _matches_where(row: Mapping[str, Any], field: str, expected: str) -> bool:

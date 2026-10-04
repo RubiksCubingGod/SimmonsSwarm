@@ -96,6 +96,15 @@ def test_protocol_version_is_identity_unless_split_or_mixed(tmp_path: Path, caps
     assert main(argv) == 2
     assert "protocol_version" in capsys.readouterr().out
 
+    assert main([*argv, "--where", "protocol_version=1", "--json"]) == 0
+    filtered_payload = json.loads(capsys.readouterr().out)
+    assert len(filtered_payload.get("cells", [])) == 1, (
+        "Expected protocol-1 cell; matching run was excluded",
+        filtered_payload,
+    )
+    assert filtered_payload["cells"][0]["n_runs"] == 1
+    assert filtered_payload["cells"][0]["run_ids"] == ["protocol-1"]
+
     assert main([*argv, "--split", "protocol_version", "--json"]) == 0
     split_payload = json.loads(capsys.readouterr().out)
     assert split_payload["split"] == "protocol_version"
