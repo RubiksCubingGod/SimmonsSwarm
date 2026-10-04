@@ -8,6 +8,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from . import metrics
+from .config import PROTOCOL_VERSION
 from .dataset import RunData
 from .records import canonical_json
 
@@ -28,6 +29,8 @@ def normalize_column(column: str | None) -> str | None:
         return None
     if column in {"sender", "guard", "arena"}:
         return {"sender": "id.sender", "guard": "id.guard", "arena": "id.arena"}[column]
+    if column == "protocol_version":
+        return column
     return column if column.startswith(("cfg.", "id.", "label.", "axis.")) or column == "author" else f"cfg.{column}"
 
 
@@ -265,7 +268,12 @@ def render_pivot(report: Mapping[str, Any], *, markdown: bool = False) -> str:
                     cell = cells.get((_key(row_axis.get("value")), _key(col_axis.get("value"))))
                     values.append((_format_cell(cell, metric_names) if cell else "·").ljust(col_widths[index]))
                 lines.append(str(row_axis.get("label", "")).ljust(width) + "  " + "  ".join(values))
-        lines.append("· slot not filled · n covert episodes · r runs")
+        sample_label = (
+            "n covert episodes"
+            if metric_names == ["hit_rate", "false_alarm_rate"]
+            else "n metric denominator"
+        )
+        lines.append(f"· slot not filled · {sample_label} · r runs")
 
     all_cells = [cell for table in report.get("slices", []) for cell in table.get("cells", [])]
     if any(cell.get("multiple_hosts") for cell in all_cells):
@@ -351,6 +359,12 @@ def _identity_values(run: RunData) -> dict[str, Any]:
             continue
         values[base] = value
     values["cfg.options_per_episode"] = row.get("cfg.options_per_episode")
+    protocol_version = row.get("protocol_version")
+    if protocol_version is None:
+        protocol_version = run.run.get(
+            "protocol_version", run.config.get("protocol_version", PROTOCOL_VERSION)
+        )
+    values["protocol_version"] = protocol_version
     return values
 
 
@@ -697,7 +711,23 @@ def _format_cell(cell: Mapping[str, Any] | None, metric_names: list[str]) -> str
         suffix = "†" if cell.get("multiple_hosts") else ""
         mixed = "*" if cell.get("mixed") else ""
         return f"{hit}  FA {false_alarm}  (n={cell.get('n_covert', 0)}, r={cell.get('n_runs', 0)}){suffix}{mixed}"
-    return "; ".join(f"{name}={_format_metric(cell.get(name))}" for name in metric_names)
+    rendered = []
+    for name in metric_names:
+        metric = cell.get(name)
+        denominator = _metric_denominator(metric, cell)
+        rendered.append(f"{name}={_format_metric(metric)} (n={denominator})")
+    suffix = "†" if cell.get("multiple_hosts") else ""
+    mixed = "*" if cell.get("mixed") else ""
+    return "; ".join(rendered) + f" (r={cell.get('n_runs', 0)}){suffix}{mixed}"
+
+
+def _metric_denominator(metric: Any, cell: Mapping[str, Any]) -> Any:
+    if isinstance(metric, Mapping):
+        for key in ("den", "n"):
+            denominator = metric.get(key)
+            if denominator is not None:
+                return denominator
+    return cell.get("n_covert", 0)
 
 
 def _format_metric(value: Any, *, short: bool = False) -> str:

@@ -26,7 +26,17 @@ def test_run_level_rows_cover_config_and_metric_columns() -> None:
     runs, _ = scan_runs([FIXTURES], include_fake=True)
     columns = dataset_columns(run.row for run in runs)
     assert len(runs) == 7
-    assert {"run_id", "id.config", "id.arena", "label.sender", "label.guard"} <= set(columns)
+    assert all(
+        run.row["protocol_version"] == run.run["protocol_version"] for run in runs
+    )
+    assert {
+        "run_id",
+        "protocol_version",
+        "id.config",
+        "id.arena",
+        "label.sender",
+        "label.guard",
+    } <= set(columns)
     assert {"cfg.option_set", "cfg.option_set.sha", "cfg.models.guard.model"} <= set(columns)
     assert {"hit_rate", "hit_rate.num", "decode_gap", "decode_gap.den", "auc"} <= set(columns)
     assert "axis.pair" not in columns  # Matrix axes belong to T21.

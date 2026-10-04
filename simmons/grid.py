@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
+from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
+from .config import Config, compute_ids
 from .dataset import RunData
 from .pivot import DEFAULT_METRICS, _pool_cell, build_pivot, render_pivot
 
@@ -18,13 +23,7 @@ def build_grid(
     allow_mixed: bool = False,
 ) -> dict[str, Any]:
     """Build grid JSON data with the exact pivot implementation underneath."""
-    selected = list(runs)
-    if arena:
-        selected = [
-            run for run in selected
-            if str(run.row.get("id.arena", "")).startswith(arena)
-        ]
-    selected = [run for run in selected if _has_valid_covert(run)]
+    selected = select_grid_runs(runs, arena=arena)
     report = build_pivot(
         selected,
         rows="sender",
@@ -36,6 +35,70 @@ def build_grid(
     # The human grid and `pivot --rows sender --cols guard --split arena` share
     # the same visible fields and formatter byte for byte.
     return report
+
+
+def filter_arena_runs(
+    runs: Iterable[RunData], arena: str | None = None
+) -> list[RunData]:
+    selected = list(runs)
+    if arena:
+        selected = [
+            run for run in selected
+            if str(run.row.get("id.arena", "")).startswith(arena)
+        ]
+    return selected
+
+
+def select_grid_runs(
+    runs: Iterable[RunData], *, arena: str | None = None
+) -> list[RunData]:
+    """Apply the grid's shared arena-prefix and valid-covert selection."""
+    return [run for run in filter_arena_runs(runs, arena) if _has_valid_covert(run)]
+
+
+def grid_display(
+    report: Mapping[str, Any],
+    runs: Iterable[RunData],
+    *,
+    arena: str | None,
+    repo_root: Path,
+) -> tuple[dict[str, Any], list[tuple[str, str, int]]]:
+    """Apply the grid's default reference-arena view and list other arenas."""
+    display_report = dict(report)
+    other_arenas: list[tuple[str, str, int]] = []
+    if arena is None:
+        reference_arena = _reference_arena(repo_root)
+        if reference_arena and any(
+            table.get("split", {}).get("value") == reference_arena
+            for table in report.get("slices", [])
+        ):
+            display_report["slices"] = [
+                table for table in report["slices"]
+                if table.get("split", {}).get("value") == reference_arena
+            ]
+            counts: dict[str, int] = {}
+            labels: dict[str, str] = {}
+            for run in select_grid_runs(runs):
+                arena_id = str(run.row.get("id.arena", ""))
+                if arena_id == reference_arena:
+                    continue
+                counts[arena_id] = counts.get(arena_id, 0) + 1
+                labels.setdefault(arena_id, _arena_name(run))
+            other_arenas = [
+                (arena_id, labels[arena_id], count)
+                for arena_id, count in sorted(counts.items())
+            ]
+    return display_report, other_arenas
+
+
+def render_other_arenas(arenas: Iterable[tuple[str, str, int]]) -> str:
+    values = list(arenas)
+    if not values:
+        return ""
+    lines = ["Other arenas (runs):"]
+    lines.extend(f"  {arena_id} · {label}: {count}" for arena_id, label, count in values)
+    lines.append("Use --arena <id-prefix> to show another arena.")
+    return "\n".join(lines)
 
 
 def grid_payload(report: Mapping[str, Any], runs: Iterable[RunData]) -> dict[str, Any]:
@@ -95,6 +158,35 @@ def _has_valid_covert(run: RunData) -> bool:
     )
 
 
+def _reference_arena(root: Path) -> str | None:
+    path = root / "experiments" / "reference.json"
+    if not path.is_file():
+        return None
+    try:
+        config = Config.model_validate(json.loads(path.read_text(encoding="utf-8")))
+        return compute_ids(config, repo_root=root)["arena_hash"]
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, ValidationError):
+        return None
+
+
+def _arena_name(run: RunData) -> str:
+    option_set = (
+        str(run.row.get("cfg.option_set") or "unknown")
+        .rsplit("/", 1)[-1]
+        .removesuffix(".json")
+    )
+    cover_task = (
+        str(run.row.get("cfg.cover_task") or "unknown")
+        .rsplit("/", 1)[-1]
+        .removesuffix(".md")
+    )
+    count = run.row.get("cfg.options_per_episode")
+    protected = run.row.get("cfg.protected_count")
+    watchlist = "no watchlist" if protected is None else f"watchlist {protected}"
+    options = f" · {count} options" if count is not None else ""
+    return f"{option_set} · {cover_task}{options}, {watchlist}"
+
+
 def _arena_fields(runs: list[RunData]) -> dict[str, Any]:
     if not runs:
         return {}
@@ -141,4 +233,12 @@ def _arena_label(runs: list[RunData]) -> str:
     return label
 
 
-__all__ = ["build_grid", "grid_payload", "render_grid"]
+__all__ = [
+    "build_grid",
+    "filter_arena_runs",
+    "grid_display",
+    "grid_payload",
+    "render_grid",
+    "render_other_arenas",
+    "select_grid_runs",
+]

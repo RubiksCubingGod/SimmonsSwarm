@@ -8,7 +8,8 @@ import sys
 from pathlib import Path
 
 from ..dataset import default_roots, scan_runs
-from ..pivot import DEFAULT_METRICS, build_pivot, json_payload, render_pivot
+from ..grid import filter_arena_runs, grid_display, render_grid, render_other_arenas, select_grid_runs
+from ..pivot import DEFAULT_METRICS, build_pivot, json_payload, normalize_column, render_pivot
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -17,6 +18,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     command.add_argument("--cols", metavar="COL")
     command.add_argument("--metric", default=",".join(DEFAULT_METRICS), metavar="LIST")
     command.add_argument("--split", metavar="COL")
+    command.add_argument("--arena", help="select an arena id prefix")
     command.add_argument("--where", action="append", default=[], metavar="FIELD=VALUE")
     command.add_argument("--runs-dir", action="append", type=Path, help="run root (repeatable)")
     command.add_argument("--include-local", action="store_true", help="also scan runs-local/")
@@ -39,8 +41,18 @@ def _run(args: argparse.Namespace) -> int:
             where=args.where,
         )
         metrics = tuple(name.strip() for name in args.metric.split(",") if name.strip())
+        grid_shape = (
+            normalize_column(args.rows) == "id.sender"
+            and normalize_column(args.cols) == "id.guard"
+            and normalize_column(args.split) == "id.arena"
+        )
+        selected_runs = (
+            select_grid_runs(runs, arena=args.arena)
+            if grid_shape
+            else filter_arena_runs(runs, args.arena)
+        )
         report = build_pivot(
-            runs,
+            selected_runs,
             rows=args.rows,
             cols=args.cols,
             split=args.split,
@@ -59,6 +71,19 @@ def _run(args: argparse.Namespace) -> int:
         if report["refused"]:
             payload.update({"error": "mixed", "mixed": report["refused"]})
         print(json.dumps(payload, ensure_ascii=False))
+    elif grid_shape:
+        display_report, other_arenas = grid_display(
+            report,
+            selected_runs,
+            arena=args.arena,
+            repo_root=Path.cwd().resolve(),
+        )
+        renderer = render_grid if metrics == DEFAULT_METRICS else render_pivot
+        rendered = renderer(display_report, markdown=args.md)
+        footer = render_other_arenas(other_arenas)
+        if footer:
+            rendered += ("\n" if args.md else "") + footer + "\n"
+        print(rendered, end="")
     else:
         print(render_pivot(report, markdown=args.md), end="")
     return 2 if report["refused"] else 0

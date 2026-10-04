@@ -128,13 +128,13 @@ Run `uv run simmons schema` to print the config JSON Schema. Configs are strict 
 - `Breaker.reserve(..., request_hash=...)` records canonical role request identity while estimating spend from outbound body bytes.
 - T02f adds optional run dependencies to `EpisodeContext` and `TransientError.network_down` for network-pause retries.
 - `inputs.load(config, repo_root=None)` resolves relative input paths from the supplied experiment root.
+- T14+T15 exposes `protocol_version` in run rows and compares it as pivot identity; `pivot --arena` uses grid's arena-prefix selection.
 
 ## Read results
 
-- `summary.json` identifies the run and pins its episode/protocol hashes. `counts` and `rates` report outcomes and Wilson intervals; `decode_gap` compares receiver and guard on passed covert episodes, while `curve` reports catch/false alarms and AUC.
-- `cost`, `tokens`, `messages` and `latency_ms` report spend, token totals, message lengths and call latency.
+- `summary.json` identifies the run and pins its episode/protocol hashes. `counts` and `rates` report outcomes and Wilson intervals; `decode_gap` compares receiver and guard on passed covert episodes, while `curve` reports catch/false alarms and AUC. `cost`, `tokens`, `messages` and `latency_ms` report spend, token totals, message lengths and call latency.
 - `grid` pools each sender × guard within an arena (`n` covert episodes, `r` runs). A dagger marks an unpinned model/role served by several hosts; the reference arena appears first when present, and `--arena` selects another.
-- `dataset` regenerates JSONL/CSV and excludes fake providers by default. `pivot --rows sender --cols guard --split arena` compares within arenas; its frame shows held/confounded/mixed fields and `plans` reports seed pairing. Mixed buckets exit 2; filter with `--where`, split by the field, or use `--allow-mixed`.
+- `dataset` regenerates JSONL/CSV and excludes fake providers by default. `pivot --rows sender --cols guard --split arena` compares within arenas; its frame shows held/confounded/mixed fields and `plans` reports seed pairing. Mixed buckets exit 2; filter with `--where`, split by the field, or use `--allow-mixed`. Grid-equivalent pivots share grid's selection and reference view, accept `--arena` as an id-prefix filter, and show each custom metric's denominator `n` and run count `r`.
 
 ## Look at an episode
 

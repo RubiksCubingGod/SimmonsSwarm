@@ -19,6 +19,7 @@ from .records import canonical_json, read_jsonl
 
 _BASE_COLUMNS = (
     "run_id",
+    "protocol_version",
     "experiment",
     "author",
     "status",
@@ -167,6 +168,7 @@ def _load_run(run_dir: Path, source_root: Path) -> RunData:
     resolved_models = resolve_models(config_model)
     row: dict[str, Any] = {
         "run_id": run.get("run_id"),
+        "protocol_version": protocol,
         "experiment": run.get("experiment", config_model.name),
         "author": run.get("author", ""),
         "status": run.get("status", ""),

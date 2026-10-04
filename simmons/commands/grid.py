@@ -7,11 +7,15 @@ import json
 import sys
 from pathlib import Path
 
-from pydantic import ValidationError
-
-from ..config import Config, compute_ids
 from ..dataset import default_roots, scan_runs
-from ..grid import build_grid, grid_payload, render_grid
+from ..grid import (
+    build_grid,
+    grid_display,
+    grid_payload,
+    render_grid,
+    render_other_arenas,
+    select_grid_runs,
+)
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -47,73 +51,21 @@ def _run(args: argparse.Namespace) -> int:
         return 2
 
     if args.json:
-        payload = grid_payload(report, runs)
+        payload = grid_payload(report, select_grid_runs(runs, arena=args.arena))
         payload["skipped"] = skipped
         if report["refused"]:
             payload.update({"error": "mixed", "mixed": report["refused"]})
         print(json.dumps(payload, ensure_ascii=False))
     else:
-        display_report = report
-        other_arenas: list[tuple[str, str, int]] = []
-        if args.arena is None:
-            reference_arena = _reference_arena(Path.cwd().resolve())
-            if reference_arena and any(
-                table.get("split", {}).get("value") == reference_arena
-                for table in report.get("slices", [])
-            ):
-                display_report = dict(report)
-                display_report["slices"] = [
-                    table for table in report["slices"]
-                    if table.get("split", {}).get("value") == reference_arena
-                ]
-                counts: dict[str, int] = {}
-                labels: dict[str, str] = {}
-                for run in runs:
-                    if not _has_valid_covert(run):
-                        continue
-                    arena_id = str(run.row.get("id.arena", ""))
-                    if arena_id == reference_arena:
-                        continue
-                    counts[arena_id] = counts.get(arena_id, 0) + 1
-                    labels.setdefault(arena_id, _arena_name(run))
-                other_arenas = [
-                    (arena_id, labels[arena_id], count)
-                    for arena_id, count in sorted(counts.items())
-                ]
-        print(render_grid(display_report, markdown=args.md), end="")
-        if other_arenas:
-            lines = ["Other arenas (runs):"]
-            lines.extend(f"  {arena_id} · {label}: {count}" for arena_id, label, count in other_arenas)
-            lines.append("Use --arena <id-prefix> to show another arena.")
-            print(("\n" if args.md else "") + "\n".join(lines))
+        display_report, other_arenas = grid_display(
+            report,
+            runs,
+            arena=args.arena,
+            repo_root=Path.cwd().resolve(),
+        )
+        rendered = render_grid(display_report, markdown=args.md)
+        footer = render_other_arenas(other_arenas)
+        if footer:
+            rendered += ("\n" if args.md else "") + footer + "\n"
+        print(rendered, end="")
     return 2 if report["refused"] else 0
-
-
-def _reference_arena(root: Path) -> str | None:
-    path = root / "experiments" / "reference.json"
-    if not path.is_file():
-        return None
-    try:
-        config = Config.model_validate(json.loads(path.read_text(encoding="utf-8")))
-        return compute_ids(config, repo_root=root)["arena_hash"]
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, ValidationError):
-        return None
-
-
-def _has_valid_covert(run) -> bool:
-    return any(
-        episode.get("kind") == "covert"
-        and isinstance(episode.get("guard"), dict)
-        and isinstance(episode["guard"].get("blocked"), bool)
-        for episode in run.episodes
-    )
-
-
-def _arena_name(run) -> str:
-    option_set = str(run.row.get("cfg.option_set") or "unknown").rsplit("/", 1)[-1].removesuffix(".json")
-    cover_task = str(run.row.get("cfg.cover_task") or "unknown").rsplit("/", 1)[-1].removesuffix(".md")
-    count = run.row.get("cfg.options_per_episode")
-    protected = run.row.get("cfg.protected_count")
-    watchlist = "no watchlist" if protected is None else f"watchlist {protected}"
-    options = f" · {count} options" if count is not None else ""
-    return f"{option_set} · {cover_task}{options}, {watchlist}"
