@@ -157,7 +157,7 @@ def test_frozen_seams_are_importable_with_declared_signatures():
     assert tuple(inspect.signature(importlib.import_module("simmons.catalog").Catalog.lookup).parameters) == ("self", "slug")
     spend_breaker = importlib.import_module("simmons.spend").Breaker
     for name, parameters in {
-        "reserve": ("self", "attempt_id", "body", "spec"),
+        "reserve": ("self", "attempt_id", "body", "spec", "request_hash"),
         "settle": ("self", "reservation", "response"),
         "unresolved": ("self", "reservation", "reason"),
         "tripped": ("self",),
@@ -167,6 +167,9 @@ def test_frozen_seams_are_importable_with_declared_signatures():
         if isinstance(member, property):
             member = member.fget
         assert tuple(inspect.signature(member).parameters) == parameters
+    reserve_hash = inspect.signature(spend_breaker.reserve).parameters["request_hash"]
+    assert reserve_hash.default is None
+    assert reserve_hash.kind is inspect.Parameter.KEYWORD_ONLY
     request_for = importlib.import_module("simmons.roles").request_for
     assert inspect.signature(request_for).return_annotation is RoleRequest
     for module_name, name in (
