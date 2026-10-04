@@ -23,8 +23,7 @@ def _copy_run(source: Path, destination: Path) -> Path:
     return destination
 
 
-def _page_data(path: Path) -> dict[str, object]:
-    page = path.read_text(encoding="utf-8")
+def _page_data_from_html(page: str) -> dict[str, object]:
     match = re.search(
         r'<script id="viewer-data" type="application/json">(.*?)</script>',
         page,
@@ -32,6 +31,10 @@ def _page_data(path: Path) -> dict[str, object]:
     )
     assert match is not None
     return json.loads(match.group(1))
+
+
+def _page_data(path: Path) -> dict[str, object]:
+    return _page_data_from_html(path.read_text(encoding="utf-8"))
 
 
 def test_viewer_writes_run_page_and_one_page_per_episode(tmp_path: Path) -> None:
@@ -91,6 +94,33 @@ def test_run_page_uses_models_recorded_before_alias_retarget(
     assert run_data["models"]["sender"] == {"provider": "fake", "model": "covert"}
     assert run_data["models"]["guard"] == {"provider": "fake", "model": "covert"}
     assert run_data["models"]["judge"] is None
+
+
+def test_run_page_labels_configured_model_when_role_was_not_called(tmp_path: Path) -> None:
+    run = _copy_run(BASE_RUN, tmp_path / "run")
+    run_data, _ = _load_run_data(run)
+    models = viewer._recorded_models(
+        {
+            "preflight": {
+                "roles": [
+                    {"role": "guard", "model": "fake:guard"},
+                    {"role": "receiver", "model": "fake:receiver"},
+                ]
+            }
+        },
+        [{"role": "sender", "model": {"provider": "fake", "model": "covert"}}],
+        {"models": {"sender": "fake:covert", "default": "historical-alias"}},
+    )
+    run_data["models"] = models
+
+    page = render_run_page(run_data)
+
+    assert models["plain_sender"] == {"configured": "historical-alias"}
+    assert models["judge"] is None
+    assert _page_data_from_html(page)["models"]["plain_sender"] == {
+        "configured": "historical-alias"
+    }
+    assert "configured; no call recorded" in page
 
 
 def test_episode_page_shows_matching_guard_request_and_catch_receiver_state(

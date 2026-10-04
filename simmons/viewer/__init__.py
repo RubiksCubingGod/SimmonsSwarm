@@ -95,7 +95,9 @@ def _model_spec(value: Mapping[str, Any]) -> ModelSpec:
 
 
 def _recorded_models(
-    run: Mapping[str, Any], requests: list[Mapping[str, Any]]
+    run: Mapping[str, Any],
+    requests: list[Mapping[str, Any]],
+    raw_config: Mapping[str, Any],
 ) -> dict[str, dict[str, str] | None]:
     models: dict[str, dict[str, str] | None] = {role: None for role in _MODEL_ROLES}
     for request in requests:
@@ -124,6 +126,26 @@ def _recorded_models(
         provider, separator, model = value.partition(":")
         if separator and provider and model:
             models[role] = {"provider": provider, "model": model}
+
+    configured = raw_config.get("models")
+    for role in _MODEL_ROLES:
+        if models[role] is not None or role == "judge":
+            continue
+        if isinstance(configured, str):
+            value: Any = configured
+        elif isinstance(configured, Mapping):
+            if role in configured:
+                value = configured[role]
+            elif "default" in configured:
+                value = configured["default"]
+            else:
+                value = "framework default"
+        else:
+            value = "framework default"
+        if isinstance(value, Mapping):
+            value = value.get("model")
+        if isinstance(value, str) and value:
+            models[role] = {"configured": value}
     return models
 
 
@@ -431,7 +453,7 @@ def _load_run_data(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]
 
     cover_task = inputs.cover_task
     config_data = {key: value for key, value in raw_config.items() if key not in {"ids", "protocol_version"}}
-    models = _recorded_models(run, requests)
+    models = _recorded_models(run, requests, raw_config)
     run_page = {
         "page": "run",
         "run": run,
@@ -484,7 +506,7 @@ function runPage(){
  const r=data.run,s=data.summary,c=data.config,episodes=data.episodes||[];
  header(`${show(r.experiment)} · run`,`${show(r.run_id)} · ${show(r.status)}`);
  const meta=add(root,"section","","card meta");
- const modelLabel=(value)=>value&&typeof value==="object"?[value.provider,value.model].filter(Boolean).join(":")||"—":"—";
+ const modelLabel=(value)=>value&&typeof value==="object"?(value.provider&&value.model?`${value.provider}:${value.model}`:value.configured?`${value.configured} (configured; no call recorded)`:"—"):"—";
  const modelRows=Object.entries({sender:"Sender model",receiver:"Receiver model",guard:"Guard model",plain_sender:"Plain sender model",judge:"Judge model"}).map(([role,label])=>[label,data.models?.[role]]);
  for(const [label,value] of [["Author",r.author],["Episodes",`${r.episodes_done} / ${r.episodes_planned}`],["Sender prompt",data.prompt_names.sender],["Guard prompt",data.prompt_names.guard],["Plain sender prompt",data.prompt_names.plain_sender],["Cover task",data.cover_task],["Arena",r.ids?.arena],...modelRows]){const cell=add(meta,"div");add(cell,"strong",label);if(label==="Cover task"){const details=add(cell,"details","","cover-task");const first=value.split(/\r?\n/).map(x=>x.trim()).find(Boolean)||"Cover task";add(details,"summary",first.replace(/^#+\s*/,""));add(details,"div",value,"cover-task-full");}else add(cell,"span",label.endsWith(" model")?modelLabel(value):show(value));}
  const rates=add(root,"section","","card");add(rates,"h2","Run metrics");const grid=add(rates,"div","","metric-grid");for(const [key,label] of Object.entries({hit_rate:"Hit rate",catch_rate:"Catch rate",false_alarm_rate:"False-alarm rate",sanity_catch_rate:"Sanity catch rate"}))metric(grid,label,s.rates?.[key]);
