@@ -6,7 +6,7 @@ import hashlib
 import html
 import json
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -101,17 +101,28 @@ def _is_fake(item: _RunMetadata) -> bool:
         return False
 
 
-def _index_data(roots: Iterable[Path], output: Path) -> dict[str, Any]:
+ViewFor = Callable[[_RunMetadata, str], tuple[Path | None, str | None]]
+
+
+def _index_data(
+    roots: Iterable[Path],
+    output: Path,
+    *,
+    include: Callable[[_RunMetadata], bool] | None = None,
+    view_for: ViewFor = _ensure_view,
+) -> dict[str, Any]:
     resolved_roots = [root.resolve() for root in roots]
     metadata = _iter_run_metadata(resolved_roots)
     forked = _forked_run_ids(metadata)
     prompt_table: dict[str, dict[str, Any]] = {}
     runs: list[dict[str, Any]] = []
     for item in metadata:
+        if include is not None and not include(item):
+            continue
         row = _row(item, forked=forked)
         summary = _read_summary(item.path)
         decode = summary.get("decode") if isinstance(summary.get("decode"), Mapping) else {}
-        view, view_error = _ensure_view(item, row["status"])
+        view, view_error = view_for(item, row["status"])
         root = next((r for r in resolved_roots if item.path.resolve().is_relative_to(r)), None)
         runs.append(
             {
@@ -233,10 +244,20 @@ def render_index_page(data: Mapping[str, Any]) -> str:
     )
 
 
-def generate_index(roots: Iterable[Path], output: Path) -> tuple[Path, dict[str, Any]]:
-    """Write one page listing every run under ``roots``, generating missing run views."""
+def generate_index(
+    roots: Iterable[Path],
+    output: Path,
+    *,
+    include: Callable[[_RunMetadata], bool] | None = None,
+    view_for: ViewFor = _ensure_view,
+) -> tuple[Path, dict[str, Any]]:
+    """Write one page listing every run under ``roots``, generating missing run views.
+
+    ``include`` limits the listing to selected runs; ``view_for`` returns each
+    listed run's page (or an error note) in place of the run's own ``view/``.
+    """
     output.parent.mkdir(parents=True, exist_ok=True)
-    data = _index_data(roots, output)
+    data = _index_data(roots, output, include=include, view_for=view_for)
     output.write_text(render_index_page(data), encoding="utf-8")
     return output, data
 
