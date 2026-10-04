@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from decimal import Decimal
 from threading import Barrier
 
@@ -12,7 +13,7 @@ import pytest
 from simmons import records, spend
 from simmons.config import Config, ModelSpecConfig
 from simmons.records import read_jsonl, request_sha256
-from simmons.types import ModelInfo, ModelSpec, RoleResponse, Usage
+from simmons.types import Inputs, ModelInfo, ModelSpec, OptionSet, RoleResponse, Usage
 
 
 BODY = {"messages": [{"role": "user", "content": "ordinary request"}], "tools": []}
@@ -180,6 +181,27 @@ def test_settled_unresolved_and_open_spend_replay_to_the_live_total(tmp_path):
         restored.reserve("too-much", BODY, _spec())
 
 
+def test_torn_final_journal_line_is_truncated_before_the_next_append(tmp_path):
+    path = tmp_path / "spend.jsonl"
+    first = spend.Breaker(0.05, path).reserve("before-crash", BODY, _spec())
+    with path.open("ab") as stream:
+        stream.write(
+            b'{"schema":"simmons.spend/1","attempt_id":"before-crash",'
+            b'"event":"sett'
+        )
+
+    resumed = spend.Breaker(0.05, path)
+
+    assert resumed.spent_usd() == pytest.approx(first.usd)
+    assert path.read_bytes().endswith(b"\n")
+    second = resumed.reserve("after-crash", BODY, _spec())
+    replayed = spend.Breaker(0.05, path)
+
+    assert resumed.spent_usd() == pytest.approx(first.usd + second.usd)
+    assert replayed.spent_usd() == pytest.approx(resumed.spent_usd())
+    assert [row["event"] for row in read_jsonl(path)] == ["reserve", "reserve"]
+
+
 def test_settlement_uses_exact_cost_and_trips_when_it_exceeds_reservation(tmp_path):
     breaker = spend.Breaker(0.05, tmp_path / "spend.jsonl")
     under = breaker.reserve("under", BODY, _spec())
@@ -232,6 +254,58 @@ def test_estimate_counts_sender_exit_interview_only_when_enabled():
     assert informed > off
 
 
+def test_plain_episode_estimates_include_receiver_calls():
+    zero_receiver = Config(
+        name="plain-receiver-cost",
+        sender_debrief="off",
+        models={
+            "default": "fake:covert",
+            "receiver": ModelSpecConfig(model="fake:covert", params={"price_out": 0}),
+        },
+    )
+    priced_receiver = zero_receiver.model_copy(
+        update={
+            "models": {
+                "default": "fake:covert",
+                "receiver": ModelSpecConfig(model="fake:covert", params={"price_out": 100}),
+            }
+        }
+    )
+
+    for kind in ("plain_allowed", "plain_protected"):
+        plan = [{"index": 0, "kind": kind, "options": ["Canberra", "Sydney"], "protected": [0], "target": 1}]
+        cost_with_receiver = spend.estimate(priced_receiver, plan)
+        cost_without_receiver = spend.estimate(zero_receiver, plan)
+        assert cost_with_receiver - cost_without_receiver == pytest.approx(0.01)
+
+
+def test_receiver_estimate_includes_shared_sender_prompt():
+    config = Config(
+        name="receiver-prompt-cost",
+        sender_debrief="off",
+        models={
+            "default": "fake:covert",
+            "receiver": ModelSpecConfig(model="fake:covert", params={"price_in": 1_000}),
+        },
+    )
+    inputs = Inputs(
+        option_set=OptionSet(("Canberra", "Sydney")),
+        sender_prompt="",
+        guard_prompt="",
+        plain_sender_prompt="",
+        cover_task="news",
+        templates={"receiver.md": "$options $message"},
+    )
+    empty_prompt = spend.estimate(config, _covert_plan(), inputs=inputs)
+    long_prompt = spend.estimate(
+        config,
+        _covert_plan(),
+        inputs=replace(inputs, sender_prompt="x" * 4_000),
+    )
+
+    assert long_prompt - empty_prompt >= 1.0
+
+
 def test_preflight_checks_run_ceiling_estimate_and_remaining_credit():
     config = _priced_config(cap=0.05)
     spend.check_before_run(config, 0.05, remaining_usd=0.05)
@@ -242,6 +316,17 @@ def test_preflight_checks_run_ceiling_estimate_and_remaining_credit():
         spend.check_before_run(config, 0.02, remaining_usd=0.01)
     with pytest.raises(spend.BreakerTripped, match="no more than 20.00"):
         spend.check_before_run(_priced_config(cap=25), 0.01)
+
+
+def test_run_cap_refuses_raised_override_and_returns_lowered_cap():
+    config = _priced_config(cap=0.05)
+
+    assert spend.run_cap(config) == pytest.approx(0.05)
+    assert spend.run_cap(config, max_cost=0.02) == pytest.approx(0.02)
+    with pytest.raises(spend.BreakerTripped, match="exceeds configured cap"):
+        spend.run_cap(config, max_cost=0.06)
+    with pytest.raises(spend.BreakerTripped, match="greater than 0"):
+        spend.run_cap(config, max_cost=0)
 
 
 def test_between_waves_zero_credit_trips_and_positive_credit_limits_future_reserves():

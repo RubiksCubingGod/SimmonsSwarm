@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -59,6 +60,29 @@ def _decimal(value: Any, label: str) -> Decimal:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _repair_torn_journal_tail(path: Path) -> None:
+    raw = path.read_bytes()
+    if not raw or raw.endswith(b"\n"):
+        return
+
+    complete_bytes = raw.rfind(b"\n") + 1
+    tail = raw[complete_bytes:]
+    try:
+        json.loads(tail.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        with path.open("r+b") as stream:
+            stream.truncate(complete_bytes)
+            stream.flush()
+            os.fsync(stream.fileno())
+    else:
+        # A crash can happen after the JSON bytes but before the line ending.
+        # Preserve that complete record and restore the delimiter before appends.
+        with path.open("ab") as stream:
+            stream.write(b"\n")
+            stream.flush()
+            os.fsync(stream.fileno())
 
 
 def _prices_for(spec: ModelSpec, catalog: Catalog | None = None) -> tuple[Decimal, Decimal]:
@@ -149,6 +173,21 @@ def _config_cap(config: Config) -> Decimal:
     return cap
 
 
+def run_cap(config: Config, max_cost: float | None = None) -> float:
+    """Return the effective per-run cap, refusing a CLI value that raises it."""
+    configured = _config_cap(config)
+    if max_cost is None:
+        return float(configured)
+    override = _decimal(max_cost, "--max-cost")
+    if override == 0:
+        raise BreakerTripped("--max-cost must be greater than 0")
+    if override > configured:
+        raise BreakerTripped(
+            f"--max-cost ${float(override):.4f} exceeds configured cap ${float(configured):.4f}"
+        )
+    return float(min(configured, override))
+
+
 class Breaker(BreakerProtocol):
     """Reserve worst-case spend atomically and persist each transition."""
 
@@ -170,6 +209,7 @@ class Breaker(BreakerProtocol):
         path = self._journal_path
         if path is None or not path.exists():
             return
+        _repair_torn_journal_tail(path)
         for record in read_jsonl(path):
             if record.get("schema") != "simmons.spend/1":
                 raise ValueError("spend journal contains a non-spend record")
@@ -402,7 +442,7 @@ def _template_for(inputs: Any, role: str) -> str:
 def _prompt_for(inputs: Any, role: str) -> str:
     if inputs is None:
         return ""
-    field = "sender_prompt" if role == "sender_debrief" else f"{role}_prompt"
+    field = "sender_prompt" if role in {"receiver", "sender_debrief"} else f"{role}_prompt"
     value = getattr(inputs, field, "")
     return value if isinstance(value, str) else ""
 
@@ -566,7 +606,7 @@ def estimate(
             if config.sender_debrief != "off":
                 roles.append("sender_debrief")
         else:
-            roles = ["plain_sender", "guard"]
+            roles = ["plain_sender", "guard", "receiver"]
         if config.scorer != "exact_match" and specs.get("judge") is not None:
             roles.append("judge")
         for role in roles:
@@ -616,4 +656,12 @@ def between_waves(
         breaker._set_external_remaining(remaining_usd)
 
 
-__all__ = ["Breaker", "BreakerTripped", "RUN_CEILING_USD", "between_waves", "check_before_run", "estimate"]
+__all__ = [
+    "Breaker",
+    "BreakerTripped",
+    "RUN_CEILING_USD",
+    "between_waves",
+    "check_before_run",
+    "estimate",
+    "run_cap",
+]
