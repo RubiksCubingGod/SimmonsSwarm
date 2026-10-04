@@ -688,7 +688,11 @@ def run_experiment(
     _write_plan(run_dir / "plan.jsonl", plan)
     write_metadata(run_dir / "run.json", run_record)
 
-    breaker = Breaker(run_cap(config, max_cost), spend_path, catalog=catalog)
+    cap_usd = run_cap(config, max_cost)
+    if catalog is None:
+        breaker = Breaker(cap_usd, spend_path)
+    else:
+        breaker = Breaker(cap_usd, spend_path, catalog=catalog)
     between_waves(breaker, remaining_usd=remaining_usd)
     preflight_log = tuple(inherited_log)
     if config.log_window is not None:
