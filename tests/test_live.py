@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import secrets
@@ -107,6 +108,65 @@ def family_request_id(role: str) -> str:
     return f"{role}-{secrets.token_hex(4)}"
 
 
+def _reconcile_run_spend(
+    run_record: dict[str, Any],
+    summary: dict[str, Any],
+    spend_records: list[dict[str, Any]],
+) -> tuple[float, float]:
+    """Return lifetime spend and preflight spend after reconciling the journal.
+
+    `summary.cost` is regenerated from episodes, so it excludes the preflight
+    calls. A completed live reference run must therefore equal episode settles
+    plus the preflight settles recorded in the spend journal.
+    """
+    reservations: dict[str, float] = {}
+    settlements: dict[str, float] = {}
+    for record in spend_records:
+        attempt_id = str(record.get("attempt_id", ""))
+        event = record.get("event")
+        amount = float(record.get("usd", 0.0))
+        if event == "reserve":
+            if not attempt_id or attempt_id in reservations:
+                raise AssertionError("spend journal has a missing or duplicate reservation")
+            reservations[attempt_id] = amount
+        elif event == "settle":
+            if not attempt_id or attempt_id in settlements:
+                raise AssertionError("spend journal has a missing or duplicate settlement")
+            settlements[attempt_id] = amount
+        else:
+            raise AssertionError(f"completed reference run has unexpected spend event {event!r}")
+
+    if reservations.keys() != settlements.keys():
+        raise AssertionError("completed reference run has an open or unmatched spend reservation")
+    for attempt_id, amount in settlements.items():
+        if amount > reservations[attempt_id]:
+            raise AssertionError(f"settlement exceeded reserve for {attempt_id}")
+
+    preflight_spend = sum(
+        amount for attempt_id, amount in settlements.items() if ":preflight-" in attempt_id
+    )
+    episode_spend = sum(
+        amount for attempt_id, amount in settlements.items() if ":preflight-" not in attempt_id
+    )
+    ledger_spend = sum(settlements.values())
+    summary_cost = float(summary["cost"]["usd"])
+    recorded_spend = float(run_record["spent_usd"])
+    if not math.isclose(episode_spend, summary_cost, rel_tol=0.0, abs_tol=1e-9):
+        raise AssertionError(
+            f"episode settlements ${episode_spend:.6f} != summary cost ${summary_cost:.6f}"
+        )
+    if not math.isclose(ledger_spend, recorded_spend, rel_tol=0.0, abs_tol=1e-9):
+        raise AssertionError(
+            f"spend journal ${ledger_spend:.6f} != run.json spent_usd ${recorded_spend:.6f}"
+        )
+    if not math.isclose(ledger_spend, summary_cost + preflight_spend, rel_tol=0.0, abs_tol=1e-9):
+        raise AssertionError(
+            f"journal ${ledger_spend:.6f} != summary ${summary_cost:.6f} + "
+            f"preflight settles ${preflight_spend:.6f}"
+        )
+    return ledger_spend, preflight_spend
+
+
 def _assert_response(response: Any, family: str, turn: str, *, reasoning: bool = False) -> None:
     if response.finish_reason == "content_filter":
         _stop(f"{family} {turn} returned content_filter")
@@ -156,11 +216,13 @@ def _run_reference(tmp_root: Path, *, fake: bool = False) -> tuple[Path, float]:
     run_record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     episodes = [json.loads(line) for line in (run_dir / "episodes.jsonl").read_text(encoding="utf-8").splitlines()]
+    spend_records = [json.loads(line) for line in (run_dir / "spend.jsonl").read_text(encoding="utf-8").splitlines()]
     if len(episodes) != 3 or run_record.get("status") != "complete":
         _stop("3-episode reference record is incomplete")
-    if round(float(run_record.get("spent_usd", 0.0)), 6) != summary.get("cost", {}).get("usd"):
-        _stop("3-episode reference summary and spend ledger disagree")
-    cost = float(summary["cost"]["usd"])
+    try:
+        cost, _preflight_spend = _reconcile_run_spend(run_record, summary, spend_records)
+    except (AssertionError, KeyError, TypeError, ValueError) as exc:
+        _stop(f"3-episode reference spend accounting failed: {exc}")
     if fake and cost != 0:
         _stop(f"fake command path unexpectedly spent {cost:.6f} USD")
     if not fake and not 0 < cost < 0.50:
@@ -183,6 +245,20 @@ def test_live_command_path_runs_fake_provider() -> None:
         run_dir, cost = _run_reference(Path(temp_dir), fake=True)
     assert run_dir.is_dir()
     assert cost == 0
+
+
+def test_spend_reconciliation_counts_preflight_outside_summary_cost() -> None:
+    spend_records = [
+        {"attempt_id": "run:preflight-sender:sender:a1:n0", "event": "reserve", "usd": 0.02},
+        {"attempt_id": "run:preflight-sender:sender:a1:n0", "event": "settle", "usd": 0.005},
+        {"attempt_id": "run:0:sender:a1:n0", "event": "reserve", "usd": 0.03},
+        {"attempt_id": "run:0:sender:a1:n0", "event": "settle", "usd": 0.01},
+    ]
+    ledger, preflight = _reconcile_run_spend(
+        {"spent_usd": 0.015}, {"cost": {"usd": 0.01}}, spend_records
+    )
+    assert ledger == pytest.approx(0.015)
+    assert preflight == pytest.approx(0.005)
 
 
 def _recall_probe(catalog: Any, family: str, slug: str) -> tuple[float, bool, bool, bool]:
@@ -276,7 +352,7 @@ def _recall_probe(catalog: Any, family: str, slug: str) -> tuple[float, bool, bo
 
 
 @pytest.mark.live
-def test_live_reference_run_and_sender_recall_per_family() -> None:
+def test_live_reference_run() -> None:
     os.environ.pop("SIMMONS_DISABLE_DOTENV", None)
     load_env(ROOT)
     try:
@@ -286,6 +362,23 @@ def test_live_reference_run_and_sender_recall_per_family() -> None:
 
     with tempfile.TemporaryDirectory(prefix="simmons-t08-live-", dir=tempfile.gettempdir()) as temp_dir:
         run_dir, reference_cost = _run_reference(Path(temp_dir))
+
+    warnings.warn(
+        f"T08 live reference spend: run={reference_cost:.6f} USD at {run_dir}",
+        UserWarning,
+        stacklevel=1,
+    )
+
+
+@pytest.mark.live
+def test_live_sender_recall_per_family() -> None:
+    os.environ.pop("SIMMONS_DISABLE_DOTENV", None)
+    load_env(ROOT)
+    try:
+        catalog = refresh_catalog(CATALOG_PATH)
+    except Exception as exc:
+        _stop(f"OpenRouter catalog refresh failed: {type(exc).__name__}: {exc}")
+
     recall_cost = 0.0
     claude_summary_forwarded: bool | None = None
     refusal = False
@@ -305,7 +398,6 @@ def test_live_reference_run_and_sender_recall_per_family() -> None:
             refusal_cost_unreported = unreported
     warnings.warn(
         "T08 live spend: "
-        f"reference_run={reference_cost:.6f} USD at {run_dir}; "
         f"recall_probe_reported={recall_cost:.6f} USD; "
         f"claude_summary_forwarded={claude_summary_forwarded}; "
         f"claude_debrief_refused={refusal}; "
