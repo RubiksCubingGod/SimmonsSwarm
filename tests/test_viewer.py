@@ -445,6 +445,9 @@ def test_episode_roles_carry_plain_english_explanations(tmp_path: Path) -> None:
     assert all(role["about"] for role in roles.values())
     assert "cannot change the outcome" in roles["Shadow receiver"]["about"]
     assert "explain its scheme" in roles["Sender exit interview"]["about"]
-    assert "Blocked by guard" in page
+    assert "Flagged: blocked" in page
+    assert "Judge: names the target" in page
+    assert "plain episodes hide nothing" in page
+    assert page.index('add(card,"h2","What happened")') < page.index('add(seen,"h2","As seen by")')
     assert "As sent" not in page
     assert page.index('add(seen,"h2","As seen by")') < page.index('add(log,"h2","Attempt log as sender saw it")')
