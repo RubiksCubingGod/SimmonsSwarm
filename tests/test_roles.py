@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from copy import deepcopy
 from pathlib import Path
 from random import Random
 
@@ -93,6 +95,10 @@ def test_every_au_meeting_template_renders_from_its_role_view_without_watchlist(
         assert "<protected>" not in request.user[0].text
         assert "name the meeting city" not in request.user[0].text.casefold()
 
+    plain_text = request_for("plain_sender", state, config, inputs, make_model()).user[0].text
+    outside_options = re.sub(r"<options>.*?</options>", "", plain_text, flags=re.DOTALL)
+    assert state.target.value not in outside_options
+
     sender_request = request_for("sender", state, config, inputs, make_model())
     state_with_response = EpisodeState(**{
         **state.__dict__, "sender_response": make_response({"reasoning_details": [{"signature": "opaque"}]})
@@ -100,6 +106,27 @@ def test_every_au_meeting_template_renders_from_its_role_view_without_watchlist(
     debrief_request = request_for("sender_debrief", state_with_response, config, inputs, make_model())
     assert debrief_request.user == sender_request.user
     assert "<protected>" not in debrief_request.prior.tool_result[0].text
+
+
+def test_every_request_uses_only_its_role_system_prompt():
+    config = Config(name="base", protected_count=None)
+    state = make_state()
+    debrief_state = EpisodeState(**{
+        **state.__dict__, "sender_response": make_response({"role": "assistant", "content": None})
+    })
+    expected = {
+        "sender": "P1 exact text",
+        "sender_debrief": "P1 exact text",
+        "plain_sender": "plain exact text",
+        "guard": "P2 exact text",
+        "receiver": "P1 exact text",
+        "judge": "",
+    }
+
+    for role, system in expected.items():
+        role_state = debrief_state if role == "sender_debrief" else state
+        request = request_for(role, role_state, config, make_inputs(), make_model())
+        assert request.system == system
 
 
 def test_watchlist_renders_protected_lists_and_plain_target_instruction_only_in_allowed_roles():
@@ -262,6 +289,7 @@ def test_debrief_request_replays_the_exact_send_message_and_tool_result_id():
         "tool_calls": [{"id": "call-send-1", "type": "function", "function": {"name": "send_message", "arguments": "{\"message\":\"A news story.\"}"}}],
         "reasoning_details": [{"type": "reasoning.encrypted", "signature": "opaque-unchanged"}],
     }
+    assistant_snapshot = deepcopy(assistant)
     state = make_state()
     state_with_response = EpisodeState(**{**state.__dict__, "sender_response": make_response(assistant)})
     config = Config(name="informed", sender_debrief="informed")
@@ -273,6 +301,7 @@ def test_debrief_request_replays_the_exact_send_message_and_tool_result_id():
     assert request.prior is not None
     assert request.prior.tool.name == SEND_MESSAGE_TOOL_NAME
     assert request.prior.assistant is assistant
+    assert request.prior.assistant == assistant_snapshot
     assert request.prior.tool_call_id == "call-send-1"
     assert "HIT" in request.prior.tool_result[0].text
     assert "Adelaide" in request.prior.tool_result[0].text

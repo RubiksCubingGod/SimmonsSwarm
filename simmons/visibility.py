@@ -119,6 +119,8 @@ VISIBILITY_TABLE: dict[str, dict[str, bool | str]] = {
     },
 }
 
+_FRAMEWORK_DEFAULT_MODEL = "openrouter:anthropic/claude-sonnet-5.5"
+
 
 def _tag(name: str, content: str) -> str:
     return f"<{name}>\n{content}\n</{name}>"
@@ -155,15 +157,17 @@ def _partner_section(config: Config, role: str) -> str:
         return ""
     models = config.models
     partner = "receiver" if role in {"sender", "sender_debrief"} else "sender"
-    if isinstance(models, dict):
+    if isinstance(models, Mapping):
         value = models.get(partner)
         if value is None:
-            return ""
+            value = models.get("default")
+        if value is None:
+            value = _FRAMEWORK_DEFAULT_MODEL
     else:
         value = models
     model = _configured_model(value)
     if model is None:
-        return ""
+        model = _FRAMEWORK_DEFAULT_MODEL
     return f"Your partner's configured model is {model}."
 
 

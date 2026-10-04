@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from simmons.config import Config
+from simmons.render import render
 from simmons.types import EpisodeState, Inputs, OptionSet, Pick, Target
 from simmons.visibility import VISIBILITY_TABLE, build_view
 
@@ -159,6 +162,62 @@ def test_no_watchlist_has_no_protected_list_or_count_for_any_game_view():
 
     plain = build_view("plain_sender", state, config, inputs)
     assert plain.plain_target_section == ""
+
+
+def test_watchlist_stays_hidden_when_sender_and_receiver_knobs_are_off():
+    config = Config(
+        name="watched-private",
+        protected_count=1,
+        sender_knows_protected=False,
+        receiver_knows_protected=False,
+    )
+    state = make_state(protected=frozenset({1}))
+    inputs = make_inputs()
+
+    sender = build_view("sender", state, config, inputs)
+    debrief = build_view("sender_debrief", state, config, inputs)
+    receiver = build_view("receiver", state, config, inputs)
+    guard = build_view("guard", state, config, inputs)
+
+    assert sender.protected_section == ""
+    assert debrief.protected_section == ""
+    assert receiver.protected_section == ""
+    assert "Sydney" in guard.protected_section
+
+
+@pytest.mark.parametrize(
+    ("models", "role", "expected"),
+    [
+        pytest.param("fake:covert", "sender", "fake:covert", id="string-shape"),
+        pytest.param({"default": "fake:covert"}, "sender", "fake:covert", id="default-string"),
+        pytest.param({"default": "fake:covert"}, "receiver", "fake:covert", id="default-receiver"),
+        pytest.param(
+            {"default": {"model": "fake:covert"}},
+            "sender_debrief",
+            "fake:covert",
+            id="default-model-object-debrief",
+        ),
+        pytest.param(
+            {"guard": "fake:guard"},
+            "sender",
+            "openrouter:anthropic/claude-sonnet-5.5",
+            id="guard-only-framework-fallback",
+        ),
+        pytest.param(
+            {"guard": "fake:guard"},
+            "receiver",
+            "openrouter:anthropic/claude-sonnet-5.5",
+            id="guard-only-receiver-fallback",
+        ),
+        pytest.param({"receiver": "fake:receiver"}, "sender", "fake:receiver", id="explicit-receiver"),
+        pytest.param({"sender": "fake:sender"}, "receiver", "fake:sender", id="explicit-sender"),
+    ],
+)
+def test_partner_model_resolution_uses_role_default_and_framework_fallback(models, role, expected):
+    config = Config(name="partner-probe", models=models, tell_partner_model=True)
+    view = build_view(role, make_state(), config, make_inputs())
+
+    assert expected in render("$partner_section", view)
 
 
 def test_watchlist_visibility_respects_knobs_and_plain_sender_still_gets_no_list():
