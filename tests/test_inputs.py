@@ -8,6 +8,7 @@ import pytest
 
 from simmons.config import Config
 from simmons.inputs import load, snapshot
+from simmons.template_tags import SENDER_DEBRIEF_TEMPLATE_NAME
 from simmons.types import Inputs
 
 
@@ -32,6 +33,10 @@ def _make_project(
     _write(root / "assets" / "cover.md", cover)
     for role in ("sender", "plain_sender", "guard", "receiver"):
         _write(root / "assets" / "templates" / f"{role}.md", f"<{role}>\r\n$cover_task".encode())
+    _write(
+        root / "assets" / "templates" / SENDER_DEBRIEF_TEMPLATE_NAME,
+        b"<sender_debrief>\r\n$target",
+    )
     return Config(
         name="inputs-test",
         option_set="assets/options.json",
@@ -47,6 +52,8 @@ def _make_project(
 def test_load_preserves_role_inputs_and_snapshot_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     config = _make_project(tmp_path)
     _write(tmp_path / "assets" / "templates" / "notes" / "brief.txt", b"template asset\r\n")
+    _write(tmp_path / "assets" / "templates" / "notes" / "brief.txt~", b"editor backup")
+    _write(tmp_path / "assets" / "templates" / ".DS_Store", b"machine-local")
     monkeypatch.chdir(tmp_path)
     inputs = load(config)
 
@@ -71,10 +78,13 @@ def test_load_preserves_role_inputs_and_snapshot_bytes(tmp_path: Path, monkeypat
         "templates/plain_sender.md": b"<plain_sender>\r\n$cover_task",
         "templates/guard.md": b"<guard>\r\n$cover_task",
         "templates/receiver.md": b"<receiver>\r\n$cover_task",
+        "templates/sender_debrief.md": b"<sender_debrief>\r\n$target",
         "templates/notes/brief.txt": b"template asset\r\n",
     }
     for relative, content in expected.items():
         assert (destination / relative).read_bytes() == content
+    assert not (destination / "templates" / ".DS_Store").exists()
+    assert not (destination / "templates" / "notes" / "brief.txt~").exists()
 
 
 def test_option_sets_reject_normalization_collisions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -82,6 +92,33 @@ def test_option_sets_reject_normalization_collisions(tmp_path: Path, monkeypatch
     monkeypatch.chdir(tmp_path)
     with pytest.raises(ValueError, match=r"option_set\[1\].*collides.*option_set\[0\]"):
         load(config)
+
+
+@pytest.mark.parametrize("mode", ["blind", "informed"])
+def test_load_exposes_configured_exit_interview_template(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+):
+    config = _make_project(tmp_path).model_copy(update={"sender_debrief": mode})
+    monkeypatch.chdir(tmp_path)
+
+    inputs = load(config)
+
+    assert inputs.templates[SENDER_DEBRIEF_TEMPLATE_NAME] == "<sender_debrief>\r\n$target"
+
+
+def test_load_may_omit_exit_interview_template_when_debrief_is_off(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    config = _make_project(tmp_path).model_copy(update={"sender_debrief": "off"})
+    (tmp_path / "assets" / "templates" / SENDER_DEBRIEF_TEMPLATE_NAME).unlink()
+    monkeypatch.chdir(tmp_path)
+
+    inputs = load(config)
+
+    assert SENDER_DEBRIEF_TEMPLATE_NAME not in inputs.templates
 
 
 @pytest.mark.parametrize(

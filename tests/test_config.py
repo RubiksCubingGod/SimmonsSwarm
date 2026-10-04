@@ -94,6 +94,8 @@ def test_hashes_are_path_independent_and_use_resolved_model_and_option_values(tm
     root_b = tmp_path / "two"
     _make_project(root_a)
     _make_project(root_b)
+    (root_b / "templates" / "meeting" / ".DS_Store").write_bytes(b"machine-local")
+    (root_b / "templates" / "meeting" / "stale.md~").write_bytes(b"editor backup")
     models_a = {
         "sender": {
             "model": "fake:covert",
@@ -125,6 +127,52 @@ def test_hashes_are_path_independent_and_use_resolved_model_and_option_values(tm
         _config(models={"default": "openrouter:anthropic/claude-sonnet-5.5"}), root_a
     )
     assert alias_ids == slug_ids
+
+
+def test_numeric_parameter_format_is_not_identity(tmp_path: Path):
+    root = tmp_path / "project"
+    _make_project(root)
+    roles = ("sender", "receiver", "guard", "plain_sender", "judge")
+    integral_models = {
+        role: {"model": "fake:covert", "temperature": 1, "params": {"numeric": 1}}
+        for role in roles
+    }
+    float_models = {
+        role: {"model": "fake:covert", "temperature": 1.0, "params": {"numeric": 1.0}}
+        for role in roles
+    }
+    integral = _config(models=integral_models, control_rate=0, plain_sender_rate=0)
+    floating = _config(models=float_models, control_rate=0.0, plain_sender_rate=0.0)
+    assert compute_ids(integral, root) == compute_ids(floating, root)
+
+    bool_models = dict(integral_models)
+    bool_models["sender"] = {"model": "fake:covert", "params": {"numeric": True}}
+    assert compute_ids(_config(models=bool_models), root) != compute_ids(integral, root)
+
+    different_models = dict(integral_models)
+    different_models["sender"] = {"model": "fake:covert", "params": {"numeric": 1.01}}
+    assert compute_ids(_config(models=different_models), root) != compute_ids(integral, root)
+
+
+def test_signed_zero_is_not_identity(tmp_path: Path):
+    root = tmp_path / "project"
+    _make_project(root)
+    roles = ("sender", "receiver", "guard", "plain_sender", "judge")
+    negative_zero_models = {
+        role: {"model": "fake:covert", "temperature": -0.0, "params": {"numeric": -0.0}}
+        for role in roles
+    }
+    positive_zero_models = {
+        role: {"model": "fake:covert", "temperature": 0.0, "params": {"numeric": 0.0}}
+        for role in roles
+    }
+    negative_zero = _config(
+        models=negative_zero_models, control_rate=-0.0, plain_sender_rate=-0.0
+    )
+    positive_zero = _config(
+        models=positive_zero_models, control_rate=0.0, plain_sender_rate=0.0
+    )
+    assert compute_ids(negative_zero, root) == compute_ids(positive_zero, root)
 
 
 def test_hashes_follow_the_sender_guard_and_arena_partitions(tmp_path: Path):

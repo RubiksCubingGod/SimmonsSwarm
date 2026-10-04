@@ -10,6 +10,7 @@ from types import MappingProxyType
 
 from .config import Config
 from .records import canonical_json
+from .template_tags import SENDER_DEBRIEF_TEMPLATE_NAME
 from .text import normalize
 from .types import Inputs, OptionSet
 
@@ -137,8 +138,20 @@ def load(config: Config) -> Inputs:
         templates["judge"] = content
         source_files["templates/judge.md"] = raw
 
+    if config.sender_debrief != "off":
+        debrief_path = templates_dir / SENDER_DEBRIEF_TEMPLATE_NAME
+        raw, content = _read_utf8(debrief_path, "templates.sender_debrief")
+        templates[SENDER_DEBRIEF_TEMPLATE_NAME] = content
+        source_files[f"templates/{SENDER_DEBRIEF_TEMPLATE_NAME}"] = raw
+
     for path in sorted(path for path in templates_dir.rglob("*") if path.is_file()):
-        relative = path.relative_to(templates_dir).as_posix()
+        relative_path = path.relative_to(templates_dir)
+        if any(
+            part.startswith(".") or part.endswith("~")
+            for part in relative_path.parts
+        ):
+            continue
+        relative = relative_path.as_posix()
         source_files[f"templates/{relative}"] = path.read_bytes()
 
     return _LoadedInputs(

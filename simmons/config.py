@@ -212,10 +212,18 @@ def _file_hash(path: Path) -> str:
 def _templates_hash(path: Path) -> str:
     if not path.is_dir():
         raise FileNotFoundError(f"templates directory does not exist: {path}")
-    pairs = [
-        (file.relative_to(path).as_posix(), _file_hash(file))
-        for file in sorted(file for file in path.rglob("*") if file.is_file())
-    ]
+    pairs: list[tuple[str, str]] = []
+    for file in path.rglob("*"):
+        if not file.is_file():
+            continue
+        relative_path = file.relative_to(path)
+        if any(
+            part.startswith(".") or part.endswith("~")
+            for part in relative_path.parts
+        ):
+            continue
+        pairs.append((relative_path.as_posix(), _file_hash(file)))
+    pairs.sort(key=lambda pair: pair[0])
     return _sha256(canonical_json(pairs).encode("utf-8"))
 
 
@@ -232,7 +240,26 @@ def _model_value(spec: ModelSpec | None) -> dict[str, Any] | None:
 
 
 def _short_hash(value: Any) -> str:
-    return _sha256(canonical_json(value).encode("utf-8"))[:8]
+    return _sha256(canonical_json(_identity_value(value)).encode("utf-8"))[:8]
+
+
+def _identity_value(value: Any) -> Any:
+    """Normalize equivalent JSON number spellings for stable identities."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if value == 0:
+            return 0
+        if value.is_integer():
+            return int(value)
+        return value
+    if isinstance(value, Mapping):
+        return {key: _identity_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_identity_value(item) for item in value]
+    return value
 
 
 def compute_ids(config: Config, repo_root: str | Path | None = None) -> dict[str, str]:
