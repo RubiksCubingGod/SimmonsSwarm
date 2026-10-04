@@ -333,9 +333,10 @@ def _projected_input_tokens(
     """Estimate the largest rendered request for each model role.
 
     The estimate uses the real role templates and views, the longest possible
-    option draw, max-length messages, and the largest history available in one
-    run. Sender debrief replays the send turn, so its larger request also counts
-    against the sender model's context.
+    option draw, max-length messages, and the largest history allowed by the
+    log scope. Experiment-scoped histories can continue across runs, so they
+    use the full configured window. Sender debrief replays the send turn, so its
+    larger request also counts against the sender model's context.
     """
     pool = tuple(inputs.option_set.options)
     option_count = min(config.options_per_episode or len(pool), len(pool))
@@ -350,7 +351,10 @@ def _projected_input_tokens(
 
     history_count = max(0, config.episodes - 1)
     if config.log_window is not None:
-        history_count = min(history_count, config.log_window)
+        if config.log_scope == "experiment":
+            history_count = config.log_window
+        else:
+            history_count = min(history_count, config.log_window)
     if not config.log_records:
         history_count = 0
     longest_option = max(pool, key=len)

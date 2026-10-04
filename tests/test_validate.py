@@ -322,6 +322,22 @@ def _patch_validation_seams(monkeypatch):
     monkeypatch.setattr(validate_command, "_check_templates", lambda _config, _inputs: None)
 
 
+def _write_catalog_with_context(root: Path, context_length: int) -> None:
+    cache = root / ".simmons" / "openrouter-catalog.json"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    catalog = json.loads(
+        (ROOT / "tests" / "fixtures" / "openrouter" / "catalog.json").read_text(encoding="utf-8")
+    )
+    sonnet = next(
+        item for item in catalog["models"]
+        if item["model"]["id"] == "anthropic/claude-sonnet-5.5"
+    )
+    sonnet["model"]["context_length"] = context_length
+    for endpoint in sonnet["endpoints"]:
+        endpoint["context_length"] = context_length
+    cache.write_text(json.dumps(catalog), encoding="utf-8")
+
+
 def test_openrouter_param_support_is_checked_against_cached_endpoints(tmp_path, monkeypatch):
     _patch_validation_seams(monkeypatch)
     cache = tmp_path / ".simmons" / "openrouter-catalog.json"
@@ -347,19 +363,7 @@ def test_openrouter_param_support_is_checked_against_cached_endpoints(tmp_path, 
 
 
 def test_cli_rejects_openrouter_model_when_projected_request_exceeds_context(tmp_path):
-    cache = tmp_path / ".simmons" / "openrouter-catalog.json"
-    cache.parent.mkdir(parents=True)
-    catalog = json.loads(
-        (ROOT / "tests" / "fixtures" / "openrouter" / "catalog.json").read_text(encoding="utf-8")
-    )
-    sonnet = next(
-        item for item in catalog["models"]
-        if item["model"]["id"] == "anthropic/claude-sonnet-5.5"
-    )
-    sonnet["model"]["context_length"] = 8192
-    for endpoint in sonnet["endpoints"]:
-        endpoint["context_length"] = 8192
-    cache.write_text(json.dumps(catalog), encoding="utf-8")
+    _write_catalog_with_context(tmp_path, 8192)
     config = _config_for_root(
         tmp_path,
         name="context-overflow",
@@ -380,6 +384,67 @@ def test_cli_rejects_openrouter_model_when_projected_request_exceeds_context(tmp
     assert "projected input" in errors[0]["message"]
     projected = errors[0]["message"].split("projected input ", 1)[1].split(" +", 1)[0]
     assert projected.isdigit() and int(projected) > 0
+
+
+def test_context_projection_keeps_experiment_log_window_on_one_episode_continuation(tmp_path):
+    from simmons.config import resolve_models
+    from simmons.roles import request_for
+
+    _write_catalog_with_context(tmp_path, 8192)
+    config = _config_for_root(
+        tmp_path,
+        name="continued-experiment",
+        episodes=1,
+        log_scope="experiment",
+        log_window=20,
+        plain_sender_rate=0,
+        sender_debrief="off",
+        models={
+            "default": "fake:covert",
+            "sender": {"model": "anthropic/claude-sonnet-5.5", "max_tokens": 1024},
+        },
+    )
+    inputs = load(config)
+    models = resolve_models(config)
+    entries = tuple(
+        {
+            "target": "Sydney",
+            "message": ("Officials discussed the foreign affairs report. " * 50)[:2000],
+            "outcome": "CATCH",
+        }
+        for _ in range(20)
+    )
+    options = tuple(inputs.option_set.options[:2])
+    continued_state = EpisodeState(
+        episode=20,
+        kind="covert",
+        options=options,
+        target=Target(payload="option", value=options[0], index=0),
+        protected=None,
+        attempt_log=entries,
+    )
+    actual_request = request_for("sender", continued_state, config, inputs, models["sender"])
+    actual_tokens = validate_command._request_input_tokens(
+        actual_request, log_entry_line="", history_count=0, log_occurrences=0
+    )
+    projected_tokens = validate_command._projected_input_tokens(
+        config, inputs, models, needs_judge=False
+    )["sender"]
+    assert projected_tokens >= actual_tokens
+    assert actual_tokens + 1024 > 8192
+
+    _write_experiment(tmp_path, config)
+    continued = _cli(tmp_path, "validate", "experiments/continued-experiment.json", "--json")
+    continued_errors = json.loads(continued.stdout)["experiments"][0]["errors"]
+    assert continued.returncode == 2
+    assert continued_errors[0]["path"] == "models.sender"
+    assert "projected input" in continued_errors[0]["message"]
+
+    run_config = config.model_copy(update={"name": "run-scoped-short", "log_scope": "run"})
+    _write_experiment(tmp_path, run_config)
+    fresh_run = _cli(tmp_path, "validate", "experiments/run-scoped-short.json", "--json")
+    assert fresh_run.returncode == 0
+    assert json.loads(fresh_run.stdout)["experiments"][0]["errors"] == []
 
 
 def test_missing_catalog_reports_structural_only_mode(tmp_path, monkeypatch):
