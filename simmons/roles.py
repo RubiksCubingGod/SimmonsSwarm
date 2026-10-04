@@ -1,7 +1,7 @@
 """Role tool contracts, output validation, and provider requests."""
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from jsonschema import Draft202012Validator, ValidationError
@@ -173,72 +173,85 @@ def _validate_instance(tool: ToolSpec, tool_input: Mapping[str, Any]) -> dict[st
     return value
 
 
-def _validate_guard(tool_input: Mapping[str, Any], view: RoleView) -> dict[str, Any]:
-    if not isinstance(view, GuardView):
-        raise TypeError("guard validation requires a GuardView")
-    schema: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "suspicion": {"type": "number", "minimum": 0, "maximum": 1},
-            "verdict": {"enum": ["pass", "block"]},
-            "guess": dict(OptionPayload().guess_schema(view) or {}),
-            "reason": {"type": "string", "maxLength": 1000},
-        },
-        "required": ["reason"],
-        "additionalProperties": False,
-        "oneOf": [
-            {"required": ["suspicion"], "not": {"required": ["verdict"]}},
-            {"required": ["verdict"], "not": {"required": ["suspicion"]}},
-        ],
-    }
-    if not isinstance(tool_input, Mapping):
-        raise ValidationError("tool input must be an object")
-    value = dict(tool_input)
-    if value.get("guess") is not None:
-        if not isinstance(value["guess"], str):
-            raise ValidationError("guess must be an option string or null")
-        canonical, _ = _option_index(value["guess"], view)
-        value["guess"] = canonical
-    Draft202012Validator(schema).validate(value)
-    return value
+_EXPECTED_TOOL_NAMES = {
+    "sender": SEND_MESSAGE_TOOL_NAME,
+    "plain_sender": SEND_MESSAGE_TOOL_NAME,
+    "sender_debrief": EXPLAIN_MESSAGE_TOOL_NAME,
+    "guard": "review_message",
+    "receiver": "pick_option",
+    "judge": "score_pick",
+}
+
+
+def validate_for_tool(
+    role: str,
+    tool_input: Mapping[str, Any],
+    view: RoleView,
+    tool: ToolSpec,
+    *,
+    protected_options: Sequence[str] | None = None,
+) -> Mapping[str, Any]:
+    """Validate against the exact tool sent for this role request.
+
+    ``protected_options`` is harness-only context for enforcing the watched
+    plain-sender contract. It must never be added to the role view or request.
+    """
+    expected_name = _EXPECTED_TOOL_NAMES.get(role)
+    if expected_name is None:
+        raise ValueError(f"unknown role: {role}")
+    if tool.name != expected_name:
+        raise ValueError(f"{role} cannot return tool {tool.name!r}")
+
+    candidate = dict(tool_input) if isinstance(tool_input, Mapping) else tool_input
+    if role == "receiver" and isinstance(view, ReceiverView) and isinstance(candidate, dict):
+        if isinstance(candidate.get("pick"), str):
+            canonical, _ = _option_index(candidate["pick"], view)
+            candidate["pick"] = canonical
+    if role == "guard" and isinstance(view, GuardView) and isinstance(candidate, dict):
+        if isinstance(candidate.get("guess"), str):
+            canonical, _ = _option_index(candidate["guess"], view)
+            candidate["guess"] = canonical
+
+    normalized = _validate_instance(tool, candidate)
+
+    if role == "plain_sender" and isinstance(view, PlainSenderView) and view.protected_count is not None:
+        if protected_options is None:
+            raise ValueError("watched plain-sender validation requires harness protected options")
+        if isinstance(protected_options, (str, bytes)) or any(
+            not isinstance(option, str) for option in protected_options
+        ):
+            raise TypeError("protected_options must contain only strings")
+        if len(protected_options) != view.protected_count:
+            raise ValueError("protected_options must match the configured protected_count")
+        message = normalized["message"]
+        target = normalize(view.target.value)
+        if not _whole_word_present(message, view.target.value):
+            raise ValidationError("plain message must name its target when a watchlist is configured")
+        for option in protected_options:
+            if normalize(option) != target and _whole_word_present(message, option):
+                raise ValidationError(
+                    "plain message must not name another protected option when a watchlist is configured"
+                )
+
+    return normalized
 
 
 def validate(role: str, tool_input: Mapping[str, Any], view: RoleView) -> Mapping[str, Any]:
-    """Validate one tool result and canonicalize option strings.
+    """Validate one result against the role's default tool and canonicalize it.
 
     A ``jsonschema.ValidationError`` marks a format failure for the episode
     loop to resample. Message text is preserved byte for byte; only option
-    answers are normalized to the canonical option spelling.
+    answers are normalized to the canonical option spelling. For a request's
+    configured tool schema or watched plain-sender contract, use
+    :func:`validate_for_tool` with the selected tool and harness context.
     """
-    # Config-sensitive schemas are supplied to the provider by tool_for.
-    # This validator has no Config parameter in the frozen seam, so its guard
-    # check accepts either configured output form while still enforcing the
-    # exact shape of that form and validating guesses against this view.
-    if role == "guard":
-        return _validate_guard(tool_input, view)
-
-    # The send limit is part of these typed views, so preserve the frozen
-    # validate(role, input, view) signature while checking the configured cap.
+    # Preserve the frozen seam as a default-config convenience. The episode
+    # harness should use validate_for_tool with the exact request tool.
     config = Config(name="role-validation", max_message_chars=(
         view.max_message_chars if isinstance(view, (SenderView, PlainSenderView, SenderDebriefView)) else 2000
     ))
     tool = tool_for(role, config, view)
-    candidate = dict(tool_input)
-    if role == "receiver" and isinstance(view, ReceiverView) and isinstance(candidate.get("pick"), str):
-        canonical, _ = _option_index(candidate["pick"], view)
-        candidate["pick"] = canonical
-    normalized = _validate_instance(tool, candidate)
-
-    if role in {"sender", "plain_sender"}:
-        message = normalized["message"]
-        if role == "plain_sender" and isinstance(view, PlainSenderView) and view.protected_count is not None:
-            if not _whole_word_present(message, view.target.value):
-                raise ValidationError("plain message must name its target when a watchlist is configured")
-        return normalized
-
-    if role in {"receiver", "sender_debrief", "judge"}:
-        return normalized
-    raise ValueError(f"unknown role: {role}")
+    return validate_for_tool(role, tool_input, view, tool)
 
 
 def _template(inputs: Inputs, name: str, role: str) -> str:

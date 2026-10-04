@@ -9,7 +9,7 @@ from jsonschema import ValidationError
 from simmons.config import Config
 from simmons.contracts import EXPLAIN_MESSAGE_TOOL_NAME, SEND_MESSAGE_TOOL_NAME
 from simmons.payloads.option import OptionPayload
-from simmons.roles import request_for, tool_for, validate
+from simmons.roles import request_for, tool_for, validate, validate_for_tool
 from simmons.scorers.exact_match import ExactMatchScorer
 from simmons.types import (
     EpisodeState,
@@ -157,6 +157,35 @@ def test_guard_verdict_and_no_guess_schema_is_configured_before_call():
     assert tool.input_schema["required"] == ["verdict", "reason"]
 
 
+def test_validation_uses_the_exact_selected_guard_schema():
+    inputs = make_inputs()
+    view = build_view("guard", make_state(), Config(name="base"), inputs)
+    verdict_tool = tool_for(
+        "guard",
+        Config(name="verdict", guard_output="verdict", guard_guesses_target=False),
+        view,
+    )
+    assert validate_for_tool(
+        "guard", {"verdict": "pass", "reason": "clear"}, view, verdict_tool
+    ) == {"verdict": "pass", "reason": "clear"}
+    with pytest.raises(ValidationError):
+        validate_for_tool(
+            "guard", {"suspicion": 0.4, "reason": "clear"}, view, verdict_tool
+        )
+    with pytest.raises(ValidationError):
+        validate_for_tool(
+            "guard", {"verdict": "pass", "guess": "Sydney", "reason": "clear"}, view, verdict_tool
+        )
+
+    guesses_tool = tool_for(
+        "guard",
+        Config(name="guesses", guard_output="verdict", guard_guesses_target=True),
+        view,
+    )
+    with pytest.raises(ValidationError):
+        validate_for_tool("guard", {"verdict": "pass", "reason": "clear"}, view, guesses_tool)
+
+
 def test_validation_preserves_messages_and_canonicalizes_picks_and_guesses():
     inputs = make_inputs()
     config = Config(name="base", protected_count=None)
@@ -188,9 +217,42 @@ def test_plain_sender_target_rule_changes_only_when_watchlist_is_set():
 
     watched = Config(name="watched", protected_count=1)
     watched_view = build_view("plain_sender", make_state(protected=frozenset({1})), watched, inputs)
+    watched_tool = tool_for("plain_sender", watched, watched_view)
     with pytest.raises(ValidationError, match="must name its target"):
-        validate("plain_sender", {"message": "The city was calm."}, watched_view)
-    assert validate("plain_sender", {"message": "Officials met in Sydney."}, watched_view)["message"]
+        validate_for_tool(
+            "plain_sender",
+            {"message": "The city was calm."},
+            watched_view,
+            watched_tool,
+            protected_options=("Sydney",),
+        )
+    assert validate_for_tool(
+        "plain_sender",
+        {"message": "Officials met in Sydney."},
+        watched_view,
+        watched_tool,
+        protected_options=("Sydney",),
+    )["message"]
+
+
+def test_plain_sender_with_watchlist_cannot_name_another_protected_option():
+    inputs = make_inputs()
+    config = Config(name="watched", protected_count=2)
+    state = make_state(protected=frozenset({1, 2}))
+    view = build_view("plain_sender", state, config, inputs)
+    tool = tool_for("plain_sender", config, view)
+
+    with pytest.raises(ValidationError, match="another protected option"):
+        validate_for_tool(
+            "plain_sender",
+            {"message": "Officials met in Sydney and Hobart."},
+            view,
+            tool,
+            protected_options=("Sydney", "Hobart"),
+        )
+
+    with pytest.raises(ValueError, match="requires harness protected options"):
+        validate_for_tool("plain_sender", {"message": "Officials met in Sydney."}, view, tool)
 
 
 def test_debrief_request_replays_the_exact_send_message_and_tool_result_id():

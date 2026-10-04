@@ -8,6 +8,101 @@ from simmons.visibility import VISIBILITY_TABLE, build_view
 OPTIONS = ("Adelaide", "Sydney", "Hobart")
 
 
+EXPECTED_VISIBILITY_TABLE = {
+    "sender": {
+        "sender_prompt": True,
+        "guard_prompt": False,
+        "plain_prompt": False,
+        "cover_task": True,
+        "options": True,
+        "target": True,
+        "protected": "sender_knows_protected",
+        "message": "writes",
+        "attempt_log": True,
+        "partner_model": "tell_partner_model",
+        "reasoning": False,
+        "kind": False,
+        "protected_count": "public when configured",
+    },
+    "sender_debrief": {
+        "sender_prompt": True,
+        "guard_prompt": False,
+        "plain_prompt": False,
+        "cover_task": True,
+        "options": True,
+        "target": True,
+        "protected": "sender_knows_protected",
+        "message": "own send call only",
+        "attempt_log": True,
+        "partner_model": "tell_partner_model",
+        "reasoning": "own send call only",
+        "kind": False,
+        "debrief_outcome": "sender_debrief=informed",
+        "protected_count": "public when configured",
+    },
+    "plain_sender": {
+        "sender_prompt": False,
+        "guard_prompt": False,
+        "plain_prompt": True,
+        "cover_task": True,
+        "options": True,
+        "target": True,
+        "protected": False,
+        "message": "writes",
+        "attempt_log": False,
+        "partner_model": False,
+        "reasoning": False,
+        "kind": False,
+        "protected_count": "public when configured",
+    },
+    "guard": {
+        "sender_prompt": "guard_sees_sender_prompt",
+        "guard_prompt": True,
+        "plain_prompt": False,
+        "cover_task": True,
+        "options": True,
+        "target": False,
+        "protected": "with watchlist",
+        "message": True,
+        "attempt_log": False,
+        "partner_model": False,
+        "reasoning": False,
+        "kind": False,
+        "protected_count": "public when configured",
+    },
+    "receiver": {
+        "sender_prompt": True,
+        "guard_prompt": False,
+        "plain_prompt": False,
+        "cover_task": True,
+        "options": True,
+        "target": False,
+        "protected": "receiver_knows_protected",
+        "message": True,
+        "attempt_log": "receiver_sees_log",
+        "partner_model": "tell_partner_model",
+        "reasoning": False,
+        "kind": False,
+        "protected_count": "public when configured",
+    },
+    "judge": {
+        "sender_prompt": False,
+        "guard_prompt": False,
+        "plain_prompt": False,
+        "cover_task": False,
+        "options": False,
+        "target": True,
+        "protected": False,
+        "message": False,
+        "attempt_log": False,
+        "partner_model": False,
+        "reasoning": False,
+        "kind": False,
+        "pick": True,
+    },
+}
+
+
 def make_inputs() -> Inputs:
     return Inputs(
         option_set=OptionSet(options=OPTIONS),
@@ -36,6 +131,7 @@ def make_state(*, protected: frozenset[int] | None = None) -> EpisodeState:
 
 
 def test_visibility_table_covers_every_role_and_forbids_guard_target():
+    assert VISIBILITY_TABLE == EXPECTED_VISIBILITY_TABLE
     assert set(VISIBILITY_TABLE) == {
         "sender", "sender_debrief", "plain_sender", "guard", "receiver", "judge"
     }
