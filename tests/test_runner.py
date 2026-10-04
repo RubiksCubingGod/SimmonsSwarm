@@ -23,6 +23,7 @@ from simmons import runner as runner_module
 from simmons.runner import run as run_config
 from simmons.runner import _make_state, run_experiment
 from simmons.scorers.exact_match import ExactMatchScorer
+from simmons.types import ModelSpec
 from simmons.spend import Breaker
 from simmons.types import (
     BudgetError,
@@ -739,3 +740,10 @@ def test_summary_cost_includes_preflight_and_matches_the_ledger():
     assert cost["usd"] == pytest.approx(cost["episodes_usd"] + cost["preflight_usd"], abs=1e-6)
     assert cost["usd"] == pytest.approx(run_record["spent_usd"], abs=1e-5)
     assert verify_run(run_dir) == []
+
+
+def test_provider_instances_keep_model_params_out_of_adapter_constructors():
+    pinned = ModelSpec("openrouter", "deepseek/deepseek-v4.1-flash", None, 32000, {"provider": {"order": ["together"]}})
+    providers, by_role = runner._provider_instances({"sender": pinned, "guard": None})
+    assert set(by_role) == {"sender"}
+    assert providers["openrouter"] is by_role["sender"]

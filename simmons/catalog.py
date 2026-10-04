@@ -379,13 +379,15 @@ def check_models(
         if info is None:
             errors.append(f"{path}: unknown OpenRouter model slug {spec.model!r}.")
             continue
-        if not info.supports_tools:
+        # Tools are checked on the endpoints a pin routes to, so a model with a
+        # few tool-less hosts can still run when pinned away from them.
+        routed, _ = route_parameters(info, spec.params.get("provider"))
+        if "tools" not in routed:
             errors.append(f"{path}: model {spec.model!r} does not support tools.")
         if not info.endpoint_prices:
             errors.append(f"{path}: model {spec.model!r} has no priced endpoints.")
 
         model_params = set(spec.params) - {"provider"}
-        routed, _ = route_parameters(info, spec.params.get("provider"))
         for parameter in sorted(model_params - routed):
             errors.append(
                 f"{path}.params.{parameter}: model {spec.model!r} does not support "

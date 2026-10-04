@@ -205,3 +205,19 @@ def test_fresh_cache_is_reused_and_day_old_cache_refreshes_with_injected_clock(
     assert len(calls) == 2 * (1 + len(snapshot["models"]))
     assert "fake-api-key" not in cache_path.read_text(encoding="utf-8")
     assert "fake-management-key" not in cache_path.read_text(encoding="utf-8")
+
+
+def test_check_models_checks_tools_on_the_pinned_endpoints():
+    catalog = load_catalog(CATALOG_FIXTURE)
+    # fixture-host-b lacks tools: unpinned routing can reach it, a pin to host-a cannot.
+    with pytest.raises(ValueError, match="does not support tools"):
+        check_models({"sender": _spec("fixture/no-tools-model")}, catalog)
+    with pytest.raises(ValueError, match="does not support tools"):
+        check_models(
+            {"sender": _spec("fixture/no-tools-model", params={"provider": {"only": ["fixture-host-b"]}})},
+            catalog,
+        )
+    assert check_models(
+        {"sender": _spec("fixture/no-tools-model", params={"provider": {"order": ["fixture-host-a"]}})},
+        catalog,
+    ) == ()
