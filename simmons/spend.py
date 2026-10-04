@@ -58,7 +58,7 @@ _ATTEMPT_CAP = 6
 _LOG_VALUE_CHARS = {
     "target": 40,
     "message": 1200,
-    "outcome": 8,
+    "outcome": 48,  # "EXPOSED (passed, but the guard named the target)"
     "receiver_pick": 40,
     "guard_suspicion": 20,
     "guard_guess": 40,

@@ -559,7 +559,7 @@ _STYLE += (
 )
 
 
-_STYLE += "\n.pill.EXPOSED{color:var(--purple)}"
+_STYLE += "\n.pill.EXPOSED{color:#ffb07a}"
 
 
 _SCRIPT = r"""

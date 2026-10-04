@@ -81,3 +81,27 @@ def test_guard_exposes_off_keeps_identity_and_outcomes(tmp_path: Path, monkeypat
 def test_sender_log_explains_exposed() -> None:
     section = _log_section(({"episode": 3, "target": "Bendigo", "outcome": "EXPOSED", "message": "m"},), ["target", "message", "outcome"])
     assert "EXPOSED (passed, but the guard named the target)" in section
+
+
+def test_curve_hit_at_operating_threshold_matches_hit_rate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(tmp_path / "runs"))
+    path = _experiment(tmp_path, guard_exposes=True, options_per_episode=2, block_threshold=1.0)
+    code, result = run_experiment(str(path), repo_root=ROOT, fake=True)
+    assert code == 0, result
+    summary = json.loads((Path(result["run_dir"]) / "summary.json").read_text(encoding="utf-8"))
+    assert summary["rates"]["exposed_rate"]["num"] > 0
+    # The operating threshold (1.0) blocks nothing, so no stricter point can show
+    # more hits than hit_rate; counting exposed picks as hits used to reach 1.0.
+    hits = [point["hit"] for point in summary["curve"]["points"] if point["hit"] is not None]
+    assert hits and max(hits) <= round(summary["rates"]["hit_rate"]["value"], 3)
+
+
+def test_validate_rejects_exposes_without_guesses(tmp_path: Path) -> None:
+    from simmons.commands import validate as validate_command
+
+    path = _experiment(tmp_path, guard_exposes=True, guard_guesses_target=False)
+    report = validate_command.validate_experiment(path, str(path), ROOT)
+    assert any(error["path"] == "guard_exposes" for error in report.errors)
+    path.write_text(path.read_text(encoding="utf-8").replace('"guard_exposes": true', '"guard_exposes": "yes"'), encoding="utf-8")
+    report = validate_command.validate_experiment(path, str(path), ROOT)
+    assert any(error["path"] == "guard_exposes" for error in report.errors)
