@@ -66,7 +66,7 @@ Green tests are not done. Done is run 3 on real models, with the five numbers pe
 
 ## Status
 
-2026-10-03. T01 and T02a–e are merged; T02f is building the M1 walking skeleton. Diagram at v10, leading with the base story. The v1 scope is settled in `atin/phosphor-mutations-selected.md`. The spec and build plan are committed as drafts under review. A separate conversation is choosing the ten preset option sets.
+2026-10-03. T01, T02a–f, T03, T05–T07 and T13 are merged; M5 (SS-15) is in review. Diagram at v10, leading with the base story. The v1 scope is settled in `atin/phosphor-mutations-selected.md`. The spec and build plan are committed as drafts under review. A separate conversation is choosing the ten preset option sets.
 
 ## How this file grows
 
@@ -128,6 +128,13 @@ Run `uv run simmons schema` to print the config JSON Schema. Configs are strict 
 - `Breaker.reserve(..., request_hash=...)` records canonical role request identity while estimating spend from outbound body bytes.
 - T02f adds optional run dependencies to `EpisodeContext` and `TransientError.network_down` for network-pause retries.
 - `inputs.load(config, repo_root=None)` resolves relative input paths from the supplied experiment root.
+
+## Read results
+
+- `summary.json` identifies the run and pins its episode/protocol hashes. `counts` and `rates` report outcomes and Wilson intervals; `decode_gap` compares receiver and guard on passed covert episodes, while `curve` reports catch/false alarms and AUC.
+- `cost`, `tokens`, `messages` and `latency_ms` report spend, token totals, message lengths and call latency.
+- `grid` pools each sender × guard within an arena (`n` covert episodes, `r` runs). A dagger marks an unpinned model/role served by several hosts; the reference arena appears first when present, and `--arena` selects another.
+- `dataset` regenerates JSONL/CSV and excludes fake providers by default. `pivot --rows sender --cols guard --split arena` compares within arenas; its frame shows held/confounded/mixed fields and `plans` reports seed pairing. Mixed buckets exit 2; filter with `--where`, split by the field, or use `--allow-mixed`.
 
 ## Look at an episode
 
