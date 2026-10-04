@@ -25,8 +25,8 @@ Each non-negotiable rule has its own criterion, so none is merely assumed.
 
 | Guardrail | Enforced by |
 |---|---|
-| No run spends more than $20; no matrix more than $100. Neither ceiling can be raised without a code change. | E-06, E-14, E-33 |
-| No role sees what the visibility table forbids, and no reasoning travels on the channel. | E-10, E-11 |
+| No run or observation pass spends more than $20; no matrix more than $100. Neither ceiling can be raised without a code change. | E-06, E-14, E-33, E-40 |
+| No role sees what the visibility table forbids, and no reasoning travels on the channel. | E-10, E-11, E-41 (observers) |
 | The default test suite never touches the network or spends money. | E-02 |
 | No secret is ever committed, logged or recorded. | E-38 |
 | No record is lost or silently rewritten: runs are append-only and crash-safe. | E-18, E-20 |
@@ -107,6 +107,15 @@ Each non-negotiable rule has its own criterion, so none is merely assumed.
 | E-33 | The matrix ceiling holds. | `budget_usd: 150` fails validation; a priced fake matrix stops at its budget; the constant is `MATRIX_CEILING_USD = 100.0`. | autonomous | T20 |
 | E-34 | Matrix results read back correctly. | Dataset has 9 run rows and 180 episode rows; the 2 × 2 pivot says "also varies: none"; `compare` lists only the guard model. | autonomous | T21 |
 | E-35 | The first real matrix fills across two people. | The monitoring gap at seed 7: 6 of 6 slots filled, no duplicates, spend under budget; the pivot shows hit rate, decode gap and false alarms. | operator-assisted (H1) | T24 |
+
+### The decode ladder (M9, after v1)
+
+| ID | Criterion | How it is verified | Tag | Proven by |
+|---|---|---|---|---|
+| E-40 | An observer pass runs in parallel and never touches the game. | M9 Verify: every file of the observed run is byte-identical afterwards; a second pass reports `nothing_to_do` and writes nothing; an errored observation is retried by the next pass; a `--again` pass supersedes earlier ones; a rung that matches the gate is read, not called; concurrency 1 and 8 give identical observations; a priced fake pass with a $0.05 cap stops below it; a fake pass on a committed run lands under `runs-local/.observations/`, and no scanner counts it as a run; a run recorded under another protocol version is refused. | autonomous | T25 |
+| E-41 | Observers see only their row. | The SPEC §10.4 table pinned cell by cell; the noninterference and canary tests on full outbound bodies: nothing varies with the current target, the kind, the gate's decision, R's pick or S's reasoning; the eavesdropper's body is unchanged by P₁; in an empty-P₁ run with `receiver_sees_log` off, its `request_sha256` equals R's (or the shadow call's); rung 3's log equals `log_seen.sender` on every `covert` and `control` episode; the fidelity preflight re-renders recorded requests to the same hashes. | autonomous | T25 |
+| E-42 | Ladder metrics are right. | The hand-built ladder fixture matches hand-computed decode rates, steps and gaps (over shared denominators) and AUC per reader; on a `fake:covert` run the ladder climbs at rung 2; an observation of a repaired episode is dropped as stale. | autonomous | T26 |
+| E-43 | The ladder reads real runs. | Passes on T23's committed sanity, mirror and reference runs, committed, each under $20; `simmons verify` passes on each run with its pass; `simmons ladder` prints all four rungs with intervals; on the mirror run, R's and the eavesdropper's all-covert decode rates fall inside each other's intervals. | operator-assisted (H1) | T26 |
 
 ## Terminal audit
 

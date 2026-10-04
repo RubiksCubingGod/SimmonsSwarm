@@ -7,7 +7,7 @@ Status: ready for orchestration, not launched, 2026-10-03. Builds what `docs/SPE
 Atin's goal (2026-10-03): ship something simple and usable as fast as possible, so the rest of the team can start hacking on it, and push every extra complexity or ticket that is not critical into a v1.1 update.
 
 - **v1.0** is the base story end to end on real models: write an experiment, validate it, run it through OpenRouter under the spend breaker, read the results as a grid, look at any episode with `show` and the viewer, and run it again with the attempt log continuing. Seventeen code tickets, the content, and the done gate (T23).
-- **v1.1** is everything else in the milestones below: the other draw modes (T04), `budget` and `doctor` (T09), the thread pool and Ctrl-C polish (T10), resume and crash injection (T11), `verify` completed to every invariant (T12b), the grid page (T17b), and matrices (M8: T18 to T21, T24). Each ticket keeps its row in the ticket map, so every criterion still has a prover. v1.1 is a separate run that starts only on Atin's word.
+- **v1.1** is everything else in the milestones below: the other draw modes (T04), `budget` and `doctor` (T09), the thread pool and Ctrl-C polish (T10), resume and crash injection (T11), `verify` completed to every invariant (T12b), the grid page (T17b), matrices (M8: T18 to T21, T24), and the decode ladder (M9: T25, T26). Each ticket keeps its row in the ticket map, so every criterion still has a prover. v1.1 is a separate run that starts only on Atin's word.
 
 ## Shape
 
@@ -61,6 +61,7 @@ One owner per file at a time. A file outside your ticket is changed through its 
 | D: metrics, dataset and grid | `metrics.py`, `dataset.py`, `pivot.py`, `grid.py`, `commands/{summarize,grid,dataset,pivot}.py`, `tests/fixtures/metrics/`, `tests/fixtures/grid.golden.md` |
 | E: show and viewer | `viewer/`, `commands/{show,view}.py` |
 | F: matrices (v1.1) | `matrix.py`, `coverage.py`, `commands/{matrix,compare}.py`, `matrices/`, `tests/fixtures/matrices/` |
+| G: decode ladder (v1.1) | `observe.py`, `ladder.py`, `commands/{observe,ladder}.py`, `tests/fixtures/observations/`, `tests/fixtures/ladder/` |
 | Content (people) | `prompts/`, `cover-tasks/`, `option-sets/`, the prose of `templates/au-meeting/`, `experiments/` other than the smoke files, `runs/` |
 | Everyone | Tests for your own files under `tests/`. CLAUDE.md: each milestone appends its own sections; pull right before editing it, and do not rewrite another track's section. The Merge Captain resolves CLAUDE.md conflicts as the union of sections. |
 
@@ -70,17 +71,19 @@ Shared files and their write order (v1.1 writers in brackets):
 |---|---|
 | `config.py` | T01 (the model) ► T02a (M1 rules, model resolution, hashes) ► T03 (every rule) |
 | `inputs.py`, `plan.py` | T02a, T02b ► [T04] |
-| `visibility.py`, `render.py`, `roles.py`, `templates/` code and tags | T02c ► T05 |
-| `spend.py` | T01 (stub and `RUN_CEILING_USD`) ► T02e ► T08 ► [T20] |
+| `visibility.py`, `render.py`, `roles.py`, `templates/` code and tags, `template_tags.py` | T02c ► T05 ► [T25: observer rows and requests, additive] |
+| `spend.py` | T01 (stub and `RUN_CEILING_USD`) ► T02e ► T08 ► [T20 ► T25: the observer estimate] |
 | `runner.py` | T02f ► T12 ► [T10 ► T11] |
-| `records.py` | T01 ► T02f ► [T11] (additive only) |
+| `records.py` | T01 ► T02f ► [T11 ► T25] (additive only) |
+| `types.py` (after T01, additive only) | [T25: `GuardLogView`] |
+| `providers/fake.py` | T02d ► [T25: observer behavior] |
 | `events.py` | T02f ► [T10] |
 | `metrics.py` | T01 (minimal summary) ► T13 |
 | `commands/run.py` | T02f ► [T18] |
 | `commands/validate.py` | T03 ► [T18] |
-| `commands/verify.py` | T02f (minimal) ► [T12b] |
+| `commands/verify.py` | T02f (minimal) ► [T12b ► T25] |
 | `commands/grid.py`, `viewer/` | T14+T15 and T17 ► [T17b] |
-| `dataset.py`, `pivot.py` | T14+T15 ► [T21] |
+| `dataset.py`, `pivot.py` | T14+T15 ► [T21 ► T26: ladder columns in `dataset.py`] |
 | `tests/fixtures/runs/` | T02f (`make_runs.py`) ► any later ticket that changes the record format |
 | `experiments/sanity.json`, `mirror.json`, `reference.json` | T02f (first drafts) ► content owners |
 
@@ -450,6 +453,53 @@ uv run simmons pivot --matrix monitoring-gap --rows axis.pair --cols axis.guard 
 
 ---
 
+## M9. The decode ladder (Track G), v1.1
+
+**Goal.** Split the decode gap into what each piece of the pair's shared knowledge buys. Passive observers re-read a finished run's messages at four rungs: no key (the eavesdropper), P₂, P₂ and P₁, and P₂, P₁ and the sender's log. They run as a separate, fully parallel pass that changes nothing in the run, so the M7 runs are observed after they are committed, without running the game again. SPEC §13.1, §10.4, §12.10 (Atin, 2026-10-03).
+
+**One piece lands in v1.0.** The `<sender_prompt>` tag around P₁ in the guard's `$sender_prompt_section` (SPEC §7.4) is part of T05. It changes the game's rendering when that knob is on, so it must exist before any run is committed.
+
+**Scope.**
+- T25, the pass:
+  - `observe.py` and `simmons observe` (SPEC §16): the preconditions and the run lock; eligible episodes; rungs read from the gate when they match; the fidelity preflight; observer requests through `visibility.build_observer_view` and `roles.request_for` from the run's `inputs/` snapshot, plan line and recorded message; observer guard tools always in suspicion mode with a guess; the rung 3 log block and its snapshot (from `episodes.jsonl` of the run and its inherited runs).
+  - Running: one parallel wave through a thread pool; its own breaker, `spend.jsonl`, preflight and `requests.jsonl.xz`; coverage of missing pairs, error retry, `--again` with `supersedes`, `nothing_to_do`; the `runs-local/.observations/` root for fake and scratch passes, and the rule that scanners treat only a directory with `run.json` as a run.
+  - `GuardLogView` in `types.py`, and `OBSERVER_VISIBILITY` and `build_observer_view` in `visibility.py` (additive, by PR Track A reviews).
+  - Two record schemas, `simmons.observe/1` and `simmons.observation/1`, in `records.py` (additive).
+  - The observer estimate in `spend.py`; pass spend counted by `budget` and `ls --cost`.
+  - The fake provider's observer behavior (SPEC §15.2), by PR Track C reviews, regenerating every golden fixture it touches with the owning tracks reviewing.
+  - The observer noninterference and canary tests (SPEC §10.4).
+  - `simmons verify` checking a run's passes (SPEC §12.10), by PR to `commands/verify.py`.
+  - T25 writes no `summary.json`.
+- T26, the reading: `ladder.py` (the SPEC §13.1 metrics over shared denominators, reusing `metrics.py`'s Wilson, curve and AUC helpers by import), `simmons ladder` with `--write`, and the call that writes each pass's `summary.json` at the end of `observe`. Ladder columns in the run-level dataset for each rung's canonical reader (`ladder.r<k>.decode_all.num`, `.den`, and so on, so `pivot` can pool them and report coverage), by PR Track D reviews. The hand-built ladder fixture. The real-model gate below.
+
+**Definition of done.** Every check below passes, including the real-model gate.
+
+**Verify.** On a fresh fake run, so the block can be pasted again:
+```bash
+uv run pytest -q tests/test_observe.py tests/test_ladder.py
+R=$(uv run simmons run experiments/smoke.json --fake --json | jq -r '.run_dir')
+find "$R" -type f | sort | xargs shasum -a 256 > "$TMPDIR/before.txt"
+uv run simmons observe "$R" --json | jq -r '.status, .pass_dir'      # complete; a path under runs-local/.observations/
+find "$R" -type f | sort | xargs shasum -a 256 | diff - "$TMPDIR/before.txt"   # no output: the run is untouched
+uv run simmons observe "$R" --json | jq -r '.status, .pass_dir'      # nothing_to_do; null
+uv run simmons ladder "$R" --include-local --json | jq '[.rungs[].rung]'                                  # [0,1,2,3]
+uv run simmons ladder "$R" --include-local --json | jq '.rungs[1].source'                                  # "gate"
+uv run simmons ladder "$R" --include-local --json | jq '.rungs[2].canonical.decode_all.value > .rungs[1].canonical.decode_all.value'   # true: the fake ladder climbs at rung 2
+uv run simmons ls --runs-dir runs-local --json | jq --arg r "$(basename "$R")" '[.runs[] | select(.run_id == $r)] | length'   # 1: the pass is not mistaken for a run
+```
+**Real-model gate (operator-assisted, H1),** after T23's runs are committed:
+```bash
+for e in sanity mirror reference; do uv run simmons observe "$(ls -d runs/$e/*/ | tail -1)" --dry-run; done   # estimates, each under $20
+for e in sanity mirror reference; do uv run simmons observe "$(ls -d runs/$e/*/ | tail -1)"; done
+uv run simmons verify "$(ls -d runs/reference/*/ | tail -1)"        # passes, including its observation pass
+uv run simmons ladder "$(ls -d runs/reference/*/ | tail -1)" --md  # every rung, with intervals
+uv run simmons ladder "$(ls -d runs/mirror/*/ | tail -1)" --json | jq '.rungs[0].canonical.gap_to_r.all_covert'   # {value, n}: value near 0, inside the intervals of both decode rates
+```
+
+**CLAUDE.md after M9:** Read the ladder: what each rung knows, what each step between rungs measures, why observers can be added to any committed run, and that rung 3 knows more than R by design.
+
+---
+
 ## Ticket map (for the orchestrator)
 
 The milestones above, cut into tickets an owner can finish and two reviewers can check. Every ticket keeps `uv run pytest -q` green and under 10 seconds. "Proves" names the EVALUATION.md criteria the ticket's evidence must show; a ticket's acceptance is its milestone's Verify lines for those criteria plus the tests named in its row. A dependency is a merge barrier: the ticket is admitted only when every listed ticket is merged.
@@ -469,7 +519,7 @@ Sizes: **S** one module or command; **M** a module with its tests and fixtures; 
 | T02f | v1.0 | C | The walking skeleton: `episode.py` (every kind and outcome, the §9.5 attempt loop with transient backoff, format resampling, length and aborts, shadow decode and the sender's exit interview, since both are defaults); `runner.py` (waves one at a time with one worker, Ctrl-C finishing the episode in flight and writing status `interrupted`, a one-line progress update per episode on stderr, the run lock, atomic metadata, every attempt through the breaker and the spend hooks, the generic preflight of §9.1 step 8, `requests.jsonl` captured and compressed at the end); minimal `events.py`; `commands/run.py` with every M1 flag and `--dry-run`; minimal `commands/verify.py`; `smoke.json`, `smoke-priced.json`, `smoke-slow.json` and first drafts of `sanity.json`, `mirror.json`, `reference.json`; `tests/fixtures/option-sets/`; `make_runs.py` and the fixture runs it writes; the end-to-end smoke test; the golden plan for `smoke.json`; CLAUDE.md's remaining M1 sections | T02a, T02b, T02c, T02d, T02e | `episode.py`, `runner.py`, `events.py`, `commands/{run,verify}.py`, `experiments/`, `tests/fixtures/` | E-03, E-04, E-05, E-06 (end to end), E-20 (minimal verify) | L |
 | T03 | v1.0 | A | Every §6.1 validation rule with its bad fixture and JSON path; unknown keys with "did you mean"; recorded overrides re-resolved without flagging an edit; `validate` with repo checks and the catalog hook; `schema`; `new`; the `params` allowlist; `purpose` and the eval-seed check; the base-story render test | T02a, T07 | `config.py`, `commands/{validate,schema,new}.py`, `tests/fixtures/bad/` | E-07, E-08 (override check), E-39 (with T22) | M |
 | T04 | v1.1 | A | Draw modes and option-set forms: object form, clusters, `sample`, `shuffled`, `cluster`, `protected_draw: "fixed"`; the `plan` command | T02a, T02b | `inputs.py`, `plan.py`, `commands/plan.py` | E-09 | M |
-| T05 | v1.0 | A | Visibility proof and role contracts: noninterference and canary tests over all 32 knob combinations on full outbound bodies; the table pinned to the page; tool variants (`verdict`, no `guess`, the enum dropped above 500); the plain contract; the context-fit check on a recorded catalog | T02c, T02d, T07 | `visibility.py`, `render.py`, `roles.py`, tests | E-10, E-11 | M |
+| T05 | v1.0 | A | Visibility proof and role contracts: noninterference and canary tests over all 32 knob combinations on full outbound bodies; the table pinned to the page; tool variants (`verdict`, no `guess`, the enum dropped above 500); the plain contract; the context-fit check on a recorded catalog; the `<sender_prompt>` tag around P₁ in the guard's `$sender_prompt_section` (§7.4), a new constant in `template_tags.py`, unless T02c already added it | T02c, T02d, T07 | `visibility.py`, `render.py`, `roles.py`, tests | E-10, E-11 | M |
 | T06 | v1.0 | B | OpenRouter adapter: pure `build_body`, the tool-choice mode decided from the model (§11), real responses recorded with the team key (about $1) as fixtures, the exit interview's replayed turn with `reasoning_details` byte for byte and the round-trip check, `require_parameters`, `max_price` from the reservation, `transforms: []`, the `params` merge, error mapping, `max_retries=0` and the 120 s timeout, `parse_error` kept; `env.py` loads `.env`; the planted-key test; recorded-response tests | T01 | `providers/openrouter.py`, `env.py`, `tests/fixtures/openrouter/` | E-12, E-38 (planted key) | M |
 | T07 | v1.0 | B | Catalog: `GET /api/v1/models` and endpoint lists, cached for a day under `.simmons/`, refresh; `check_models` for unknown slugs, missing tool support and missing prices; offline structural mode; a recorded catalog fixture | T01 | `catalog.py`, `tests/fixtures/openrouter/catalog*` | E-13 | S |
 | T08 | v1.0 | B | Spend on real prices: reservations from the catalog's endpoint prices and `max_price`; the real estimate and the pre-run refusal; `--dry-run` on real prices; the key-limit cap from `GET /api/v1/key` before the run and between waves; the live 5-episode check | T02f, T06, T07 | `spend.py` | E-14, E-15, E-06 (real prices) | M |
@@ -490,8 +540,10 @@ Sizes: **S** one module or command; **M** a module with its tests and fixtures; 
 | T22 | v1.0 | Content | The base story's assets: the `australian-cities` set, the foreign affairs cover task, the `au-meeting` templates' final prose, reference P₁ and P₂, the obvious-code prompt, the plain prompt, `prompts/sender/empty.md` | none | `option-sets/`, `cover-tasks/`, `prompts/`, `templates/au-meeting/` prose | E-27, E-39 | people |
 | T23 | v1.0 | M7 | The three committed runs, `verify` on each, the cover-task review, the behavior checks, freezing the reference prompts, the second-clone read-back, the cold-agent check | runs: T02f, T03, T05, T08, T22, H1 to H3. Close: every v1.0 ticket | `runs/`, `tests/` (freeze test) | E-28, E-29, E-36 | people; an Opus seat drives the commands |
 | T24 | v1.1 | M8 | The monitoring gap's first replicate, by two people | T20, T21, H1 | `matrices/monitoring-gap.json`, `runs/` | E-35 | people |
+| T25 | v1.1 | G | The observer pass (M9 scope, first item): `simmons observe` with its preconditions and the run lock, eligible episodes, rungs read from the gate, the fidelity preflight, observer requests from the run's snapshot, the rung 3 log block and snapshot, one parallel wave, its own breaker and journal, coverage, error retry, `--again` and `nothing_to_do`, the local observations root, `GuardLogView`, `OBSERVER_VISIBILITY` and `build_observer_view`, the two record schemas, the observer estimate, pass spend in `budget` and `ls`, the fake's observer behavior, the observer noninterference and canary tests, `verify` over passes | T05, T08, T09, T10, T11, T12, T12b | `observe.py`, `commands/observe.py`, `tests/fixtures/observations/`; additive PRs to `types.py`, `visibility.py`, `roles.py`, `records.py`, `spend.py`, `providers/fake.py`, `commands/{verify,ls,budget}.py`; regenerated `tests/fixtures/runs/`, `tests/fixtures/grid.golden.md` and matrix fixtures, reviewed by their owning tracks | E-40, E-41 | L |
+| T26 | v1.1 | G | The ladder (M9 scope, second item): `ladder.py` over shared denominators, `simmons ladder` with `--write`, the pass summary written by `observe`, dataset ladder columns with numerators and denominators, the hand-built fixture, the real-model gate on T23's three runs | T25, T14+T15, T21, T23, H1 | `ladder.py`, `commands/ladder.py`, `tests/fixtures/ladder/`; PRs to `dataset.py` and `observe.py` (the summary call); observation passes under `runs/` | E-42, E-43 | M |
 
-Every criterion has a prover: each of E-01 to E-39 appears in the "Proves" column above except E-37 (CLAUDE.md teaches the system), which is proven by whichever ticket writes each milestone's CLAUDE.md sections: T01 and T02f (M1), T03 (M2), T08 (M3), T12 (M4), T14+T15 (M5), T16 and T17 (M6), T23 (M7), T20 (M8). In v1.0, the criteria whose only prover is a v1.1 ticket (E-16, E-17, E-18, E-30 to E-35, and the v1.1 parts of E-06, E-09, E-20, E-25, E-26 and E-28) are out of the v1.0 audit and are proven by v1.1.
+Every criterion has a prover: each of E-01 to E-43 appears in the "Proves" column above except E-37 (CLAUDE.md teaches the system), which is proven by whichever ticket writes each milestone's CLAUDE.md sections: T01 and T02f (M1), T03 (M2), T08 (M3), T12 (M4), T14+T15 (M5), T16 and T17 (M6), T23 (M7), T20 (M8), T26 (M9). In v1.0, the criteria whose only prover is a v1.1 ticket (E-16, E-17, E-18, E-30 to E-35, E-40 to E-43, and the v1.1 parts of E-06, E-09, E-20, E-25, E-26 and E-28) are out of the v1.0 audit and are proven by v1.1.
 
 ## Waves and caps
 
@@ -570,7 +622,7 @@ Run these just before launch; launch only when every one passes. The Orchestrato
 ```bash
 cd ~/Projects/Gregorovich/projects/SimmonsSwarm
 git pull --rebase && git status -sb                       # main...origin/main
-for e in $(seq -w 1 39); do grep -q "E-$e" docs/BUILDPLAN.md || echo "E-$e has no ticket"; done   # no output
+for e in $(seq -w 1 43); do grep -q "E-$e" docs/BUILDPLAN.md || echo "E-$e has no ticket"; done   # no output
 gh repo view RubiksCubingGod/SimmonsSwarm --json viewerPermission -q .viewerPermission           # WRITE or higher
 uv --version && uv python find 3.11 && lattice --version  # all print
 grep -qx '.lattice/' .git/info/exclude || echo '.lattice/' >> .git/info/exclude                  # the board stays out of git
@@ -631,5 +683,6 @@ CLAUDE.md is the one teaching document for every agent here, because AGENTS.md l
 | M6 | Look at an episode |
 | M7 | Done means · Pitfalls · Status: v1 working |
 | M8 | Run a matrix · Read a matrix · Coordination rule |
+| M9 | Read the ladder |
 
 The Status line changes at every milestone ("M3 done; M4 and M5 in progress"), so an agent arriving cold knows what exists. A new pitfall gets an entry the day it bites: the trap, why it fails, the fix.
