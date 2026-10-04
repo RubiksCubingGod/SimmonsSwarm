@@ -89,3 +89,4 @@ Run `uv run pytest -q`. The default suite blocks socket connections and removes 
 - The hermetic suite sets `SIMMONS_DISABLE_DOTENV=1`; `load_env` must return without reading `.env` when set.
 - `simmons.plan.plan_hash(lines)` returns the SHA-256 hex digest of the canonical UTF-8 JSONL bytes for plan records.
 - T07: `load_catalog` reads the local snapshot without network; `refresh_catalog` updates the daily OpenRouter model and endpoint cache; `check_models` validates slug, tool and price availability, endpoint parameter support, and projected context fit.
+- T02a adds `config.resolve_models(config)` and `config.compute_ids(config, repo_root=None)` for canonical role models and §6.3 identities.
