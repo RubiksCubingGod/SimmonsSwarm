@@ -91,28 +91,50 @@ def spent_so_far(runs_dir: Path) -> float:
 
 
 class Budget:
-    """Thread-safe spend ceiling with reserve-then-settle accounting."""
+    """Thread-safe spend ceiling with reserve-then-settle accounting.
 
-    def __init__(self, limit_usd: float, already_spent: float, log_path: Path | None):
+    When a call would pass `limit`, the budget first waits for in-flight calls
+    to settle, since reservations are worst cases and usually settle lower.
+    If the call still does not fit, `decide(spent)` may raise the limit once,
+    to `extend_to`; otherwise the call is refused.
+    """
+
+    def __init__(self, limit_usd: float, already_spent: float, log_path: Path | None,
+                 extend_to: float | None = None, decide=None):
         self.limit = limit_usd
         self.spent = already_spent
         self.reserved = 0.0
         self.log_path = log_path
-        self._lock = threading.Lock()
+        self.extend_to = extend_to
+        self.decide = decide
+        self.extended = False
+        self._cond = threading.Condition()
 
     def reserve(self, amount: float) -> None:
-        with self._lock:
-            if self.spent + self.reserved + amount > self.limit:
+        with self._cond:
+            while self.spent + self.reserved + amount > self.limit:
+                if self.reserved > 0:
+                    self._cond.wait(timeout=1.0)
+                    continue
+                can_extend = (not self.extended and self.extend_to is not None
+                              and self.extend_to > self.limit and self.decide is not None)
+                if can_extend and self.decide(self.spent):
+                    self.limit = self.extend_to
+                    self.extended = True
+                    continue
+                if can_extend:
+                    self.extend_to = None  # decided against; never ask again
                 raise BudgetExceeded(
                     f"next call could cost up to ${amount:.4f}; spent ${self.spent:.4f} "
-                    f"+ in flight ${self.reserved:.4f} would pass the ${self.limit:.2f} limit"
+                    f"would pass the ${self.limit:.2f} limit"
                 )
             self.reserved += amount
 
     def settle(self, reserved: float, cost: float, entry: dict) -> None:
-        with self._lock:
+        with self._cond:
             self.reserved -= reserved
             self.spent += cost
+            self._cond.notify_all()
             if self.log_path is not None:
                 line = {"time": datetime.now(timezone.utc).isoformat(), "cost_usd": cost, **entry}
                 with self.log_path.open("a", encoding="utf-8") as f:
