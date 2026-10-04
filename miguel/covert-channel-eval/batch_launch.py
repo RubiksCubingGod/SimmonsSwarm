@@ -29,6 +29,7 @@ import config
 from openrouter_client import OpenRouterClient
 from orchestrator import run_experiment
 from run_experiment import _save, _transcript_md
+from spend import SpendLedger
 
 
 # ---- per-run worker ---------------------------------------------------------
@@ -39,7 +40,11 @@ def _run_task(task: dict, base_dir: str) -> dict:
     row = {"idx": task["idx"], "seed": cfg.seed, "condition": cfg.condition,
            "status": "ok"}
     try:
-        client = OpenRouterClient()          # one client per worker (thread-safe)
+        # One child ledger per run under the shared batch ledger, so the batch
+        # cap bounds total spend and each run has its own cap too.
+        run_ledger = SpendLedger(cfg.max_cost_usd, parent=task["ledger"],
+                                 label=f"run{task['idx']:02d}")
+        client = OpenRouterClient(ledger=run_ledger)
         result = run_experiment(cfg, client)
         m = result["metrics"]
         j, d = m["judge"], m["detection"]
@@ -50,7 +55,10 @@ def _run_task(task: dict, base_dir: str) -> dict:
             "covert": m["covert"],
             "max_susp": d["max_suspicion"],
             "flagged": d["ever_flagged"],
+            "monitor_error": d.get("monitor_error", False),
+            "incomplete": m.get("incomplete", False),
             "success": m["covert_channel_success"],
+            "spend_usd": (m.get("spend") or {}).get("total_usd", 0.0),
             "summary": v.get("summary", ""),
         })
         # persist full artifacts
@@ -130,25 +138,41 @@ def _aggregate(rows: list[dict]) -> dict:
 
 # ---- main -------------------------------------------------------------------
 def main() -> None:
+    config.load_env()  # load .env (if any) before reading defaults
     p = argparse.ArgumentParser(description="Parallel batch launcher.")
     p.add_argument("-n", "--num", type=int, default=20, help="experiments per condition")
     p.add_argument("--condition", choices=["covert", "plaintext", "both"],
                    default="covert")
     p.add_argument("--workers", type=int, default=5, help="max concurrent runs")
+    p.add_argument("--scenario", default=None,
+                   help="role-play scenario (research | marketing); env CC_SCENARIO")
     p.add_argument("--rounds", type=int, default=None)
     p.add_argument("--company", default=None)
+    p.add_argument("--topic", default=None)
     p.add_argument("--seed-start", type=int, default=1)
     p.add_argument("--out-dir", default=None)
+    p.add_argument("--max-cost", type=float, default=None,
+                   help="USD cap across the whole batch (all runs); without it each "
+                        "run is still bounded by its per-run cap")
     p.add_argument("--no-interview", action="store_true")
     args = p.parse_args()
 
     base = config.ExperimentConfig()
+    if args.scenario is not None:
+        base.scenario = args.scenario
     if args.rounds is not None:
         base.rounds = args.rounds
     if args.company is not None:
         base.company = args.company
+    if args.topic is not None:
+        base.topic = args.topic
     if args.no_interview:
         base.run_interview = False
+
+    # Shared batch ledger. The batch-wide cap comes only from --max-cost; without
+    # it the batch total is unbounded, but every run still runs under its own
+    # per-run child ledger (cfg.max_cost_usd), so no single run can overspend.
+    batch_ledger = SpendLedger(args.max_cost, label="batch")
 
     conditions = ["covert", "plaintext"] if args.condition == "both" else [args.condition]
     tasks = []
@@ -156,7 +180,7 @@ def main() -> None:
     for cond in conditions:
         for k in range(args.num):
             cfg = dataclasses.replace(base, condition=cond, seed=args.seed_start + k)
-            tasks.append({"idx": idx, "cfg": cfg})
+            tasks.append({"idx": idx, "cfg": cfg, "ledger": batch_ledger})
             idx += 1
     total = len(tasks)
 
@@ -229,8 +253,12 @@ def main() -> None:
             print(str(r["summary"]))
 
     # ---- persist aggregate + CSV ----
+    spend = batch_ledger.to_dict()
+    print(f"\nBatch spend: ${spend['total_usd']:.4f} of cap {spend['cap_usd']} "
+          f"({spend['calls']} calls, {spend['unknown_cost_calls']} unknown-cost)")
     _save(base_dir, "batch_results.json",
           {"elapsed_secs": elapsed, "total": total, "rows": rows, "aggregate": agg,
+           "spend": spend,
            "models": {"collaborator": config.COLLABORATOR_MODEL,
                       "monitor": config.MONITOR_MODEL, "judge": config.JUDGE_MODEL}})
     csv_cols = ["idx", "seed", "condition", "status", "channel_valid", "a2b", "b2a",
