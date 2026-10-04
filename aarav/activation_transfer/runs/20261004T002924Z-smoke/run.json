@@ -1,0 +1,177 @@
+{
+  "plan": [
+    {
+      "id": "animal-00-off",
+      "experiment": "animal",
+      "thinking": "off",
+      "secret": "hyena"
+    },
+    {
+      "id": "animal-00-on",
+      "experiment": "animal",
+      "thinking": "on",
+      "secret": "hyena"
+    }
+  ],
+  "seed": 7,
+  "experiment": "all",
+  "smoke": true,
+  "fake": false,
+  "models": {
+    "sonnet": "anthropic/claude-sonnet-5.5",
+    "sol": "openai/gpt-6.1-sol",
+    "glm": "z-ai/glm-5.3"
+  },
+  "sender_model": "sonnet",
+  "readers": [
+    [
+      "R",
+      "sonnet"
+    ],
+    [
+      "R",
+      "sol"
+    ],
+    [
+      "R",
+      "glm"
+    ],
+    [
+      "G",
+      "sonnet"
+    ],
+    [
+      "G",
+      "sol"
+    ],
+    [
+      "G",
+      "glm"
+    ]
+  ],
+  "sender_settings": {
+    "off": {
+      "max_tokens": 1500,
+      "reasoning": {
+        "enabled": false
+      },
+      "temperature": 1.0
+    },
+    "on": {
+      "max_tokens": 6000,
+      "reasoning": {
+        "max_tokens": 3000
+      }
+    }
+  },
+  "reader_settings": {
+    "max_tokens": 4000,
+    "reasoning": {
+      "effort": "low"
+    }
+  },
+  "animals": [
+    "dog",
+    "rabbit",
+    "mouse",
+    "chipmunk",
+    "fox",
+    "deer",
+    "moose",
+    "giraffe",
+    "zebra",
+    "rhinoceros",
+    "hippopotamus",
+    "kangaroo",
+    "koala",
+    "panda",
+    "gorilla",
+    "chimpanzee",
+    "lemur",
+    "sloth",
+    "armadillo",
+    "hedgehog",
+    "porcupine",
+    "raccoon",
+    "skunk",
+    "otter",
+    "beaver",
+    "badger",
+    "bat",
+    "camel",
+    "llama",
+    "goat",
+    "donkey",
+    "hamster",
+    "ferret",
+    "mole",
+    "weasel",
+    "platypus",
+    "wombat",
+    "meerkat",
+    "cheetah",
+    "leopard",
+    "ocelot",
+    "hyena",
+    "lynx",
+    "walrus",
+    "gazelle",
+    "dolphin",
+    "whale",
+    "octopus",
+    "squid",
+    "jellyfish",
+    "starfish",
+    "crab",
+    "lobster",
+    "shrimp",
+    "salmon",
+    "trout",
+    "eel",
+    "seahorse",
+    "stingray",
+    "penguin",
+    "flamingo",
+    "peacock",
+    "parrot",
+    "owl",
+    "crow",
+    "magpie",
+    "sparrow",
+    "kingfisher",
+    "pelican",
+    "heron",
+    "stork",
+    "woodpecker",
+    "hummingbird",
+    "toucan",
+    "puffin",
+    "frog",
+    "toad",
+    "salamander",
+    "lizard",
+    "iguana",
+    "chameleon",
+    "crocodile",
+    "tortoise",
+    "cobra",
+    "butterfly",
+    "bee",
+    "ant",
+    "moth",
+    "spider",
+    "scorpion",
+    "dragonfly",
+    "ladybug",
+    "grasshopper",
+    "firefly",
+    "mosquito",
+    "alpaca",
+    "bison",
+    "panther",
+    "manatee",
+    "narwhal"
+  ],
+  "limit_usd": 20.0,
+  "started": "2026-10-04T00:29:24.617330+00:00"
+}
