@@ -1,0 +1,11 @@
+{
+  "name": "bad-sender-prompt-size",
+  "option_set": "tests/fixtures/bad/assets/options.json",
+  "options_per_episode": 2,
+  "sender_prompt": "tests/fixtures/bad/assets/prompts/too-large.md",
+  "guard_prompt": "tests/fixtures/bad/assets/prompts/guard.md",
+  "plain_sender_prompt": "tests/fixtures/bad/assets/prompts/plain.md",
+  "cover_task": "tests/fixtures/bad/assets/cover-tasks/cover.md",
+  "templates": "tests/fixtures/bad/assets/templates",
+  "models": "fake:covert"
+}

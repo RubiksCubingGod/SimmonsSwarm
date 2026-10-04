@@ -1,0 +1,1 @@
+$cover_task $options $protected_section $sender_prompt_section $message
