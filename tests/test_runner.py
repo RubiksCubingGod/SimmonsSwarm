@@ -132,6 +132,14 @@ def test_smoke_matches_golden_and_fake_runs_continue_trajectory(
     assert catches
     assert all(record["calls"]["receiver"] is None for record in catches)
     assert all(record["calls"]["shadow_receiver"] is not None for record in catches)
+    shadow_records = [
+        record for record in first_episodes
+        if record["calls"]["shadow_receiver"] is not None
+    ]
+    assert shadow_records
+    assert all(record["outcome"] == "CATCH" for record in shadow_records)
+    assert all(record["guard"]["blocked"] for record in shadow_records)
+    assert any(record["shadow_pick"] == record["target"] for record in shadow_records)
     assert all(record["calls"]["sender_debrief"] is not None for record in catches)
     assert all("sender_debrief" not in row for row in read_jsonl(first / "attempt-log.jsonl"))
     assert first_run["preflight"]["sender_reasoning"]["fake:covert"]["carried"] is True
