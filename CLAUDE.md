@@ -163,3 +163,7 @@ Run `uv run simmons ls [--experiment NAME] [--matrix NAME] [--runs-dir DIR] [--j
 ## Trajectories
 
 With `log_scope: "experiment"`, a run continues the matching config hash and seed from the allowed run roots, inherits its attempt log and starts after the highest recorded episode index. Fake and scratch runs can continue committed history; committed runs ignore `runs-local/`. `log_scope: "run"` starts at index zero. `simmons ls` marks forked runs; the next run follows the longer branch, then the earlier run id on a tie.
+
+## Read a run and an episode (M6)
+
+Run `uv run simmons view <run-dir> [--open]` to write a local `view/index.html` and one page per episode. The run page shows summary rates, the catch-versus-false-alarm curve, and a filterable episode table. Each episode page shows the recorded message and decisions, target and protected-option markings, the sender's attempt log, any recorded exit interview, and role request tabs from `requests.jsonl.xz`. Each archived request is checked against both its stored hash and a fresh render from the run inputs. CATCH episodes state that the receiver was not called. The pages use inline assets and open from `file://`; they need no server or network access.
