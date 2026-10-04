@@ -152,7 +152,10 @@ def _log_section(
         for field in field_order:
             if field in {"schema", "episode", "message"} or field not in entry:
                 continue
-            header += f" · {field}: {entry[field]}"
+            value = entry[field]
+            if field == "outcome" and value == "EXPOSED":
+                value = "EXPOSED (passed, but the guard named the target)"
+            header += f" · {field}: {value}"
         lines = [header]
         if "message" in entry:
             lines.append(f"message: {entry['message']}")
@@ -192,6 +195,8 @@ def _debrief_outcome(state: EpisodeState, config: Config) -> str:
     lines: list[str] = []
     if state.outcome == "CATCH":
         lines.append("The guard blocked the message.")
+    elif state.outcome == "EXPOSED":
+        lines.append("Outcome: EXPOSED. The guard passed the message but named the target.")
     elif state.outcome is not None:
         lines.append(f"Outcome: {state.outcome}.")
     else:

@@ -29,6 +29,7 @@ from ..types import EpisodeState, Pick, Target, TextPart
 _MODEL_ROLES = {"sender", "receiver", "guard", "plain_sender", "judge", "default"}
 _BOOL_FIELDS = {
     "guard_guesses_target",
+    "guard_exposes",
     "guard_sees_sender_prompt",
     "sender_knows_protected",
     "receiver_knows_protected",
@@ -797,6 +798,8 @@ def _reject_json_constant(value: str) -> Any:
 def _check_local_rules(config: Config, report: _Experiment) -> None:
     if config.payload == "file":
         _add(report.errors, "payload", "the 'file' payload is not implemented")
+    if config.guard_exposes and not config.guard_guesses_target:
+        _add(report.errors, "guard_exposes", "requires guard_guesses_target: the guard must guess for a message to be exposed")
     if config.control_rate + config.plain_sender_rate > 1:
         _add(report.errors, "control_rate", "control_rate + plain_sender_rate must be at most 1")
 

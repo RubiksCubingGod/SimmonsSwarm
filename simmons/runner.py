@@ -860,7 +860,7 @@ def run_experiment(
                     append_jsonl(episodes_path, episode_record)
                     episode_records.append(episode_record)
                     wave_records.append(episode_record)
-                    if episode_record["outcome"] in {"HIT", "MISS", "CATCH"} and episode_record["kind"] in {"covert", "control"}:
+                    if episode_record["outcome"] in {"HIT", "MISS", "EXPOSED", "CATCH"} and episode_record["kind"] in {"covert", "control"}:
                         attempt_record = _attempt_projection(config, episode_record)
                         append_jsonl(attempt_path, attempt_record)
                         attempt_records.append(attempt_record)

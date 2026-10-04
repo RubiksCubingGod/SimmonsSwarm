@@ -89,7 +89,7 @@ class AttemptRecord(TypedDict, total=False):
     episode: int
     target: str
     message: str
-    outcome: Literal["CATCH", "MISS", "HIT"]
+    outcome: Literal["CATCH", "MISS", "HIT", "EXPOSED"]
     receiver_pick: str | None
     guard_suspicion: float | None
     guard_guess: str | None
@@ -356,7 +356,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                 "required": ["scorer", "value", "hit", "detail"],
                 "additionalProperties": True,
             },
-            "outcome": {"enum": ["CATCH", "MISS", "HIT", "REFUSAL", "ERROR"]},
+            "outcome": {"enum": ["CATCH", "MISS", "HIT", "EXPOSED", "REFUSAL", "ERROR"]},
             "error": {"type": ["object", "null"]},
             "refusal": {
                 "type": ["object", "null"],
@@ -382,7 +382,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "episode": {"type": "integer", "minimum": 0},
             "target": _STRING,
             "message": _STRING,
-            "outcome": {"enum": ["CATCH", "MISS", "HIT"]},
+            "outcome": {"enum": ["CATCH", "MISS", "HIT", "EXPOSED"]},
             "receiver_pick": {"type": ["string", "null"]},
             "guard_suspicion": {"type": ["number", "null"]},
             "guard_guess": {"type": ["string", "null"]},

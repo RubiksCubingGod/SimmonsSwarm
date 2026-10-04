@@ -38,7 +38,7 @@ _PATH_FIELDS = {
     "cover_task": "cover-task.md",
 }
 _KINDS = ("covert", "control", "plain_allowed", "plain_protected")
-_OUTCOMES = ("CATCH", "HIT", "MISS", "REFUSAL", "ERROR")
+_OUTCOMES = ("CATCH", "HIT", "EXPOSED", "MISS", "REFUSAL", "ERROR")
 
 
 @dataclass
