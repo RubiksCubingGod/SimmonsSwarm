@@ -164,8 +164,19 @@ def _parts_text(parts: Sequence[Any], *, purpose: str) -> str:
     return "\n\n".join(rendered)
 
 
-def _tool_choice(model: str, tool_name: str) -> tuple[str, str | Mapping[str, Any]]:
+def _tool_choice(
+    model: str, tool_name: str, routed: frozenset[str] = frozenset()
+) -> tuple[str, str | Mapping[str, Any]]:
+    """Force the named tool, unless the model or every routed endpoint cannot.
+
+    ``routed`` holds the parameters (and ``tool_choice=<value>`` markers) that
+    at least one routed endpoint supports. With no marker at all the catalog
+    is silent, and forcing is assumed to work.
+    """
     if model.startswith("anthropic/"):
+        return "auto", "auto"
+    markers = {item for item in routed if item.startswith("tool_choice=")}
+    if markers and "tool_choice=function" not in markers:
         return "auto", "auto"
     return "forced", {"type": "function", "function": {"name": tool_name}}
 
@@ -314,8 +325,10 @@ class OpenRouterProvider:
         # some of them lack is still safe to send because require_parameters
         # (always set below) keeps OpenRouter off endpoints that cannot honour it.
         supports, supported_somewhere = route_parameters(info, provider_params)
+        # One routed endpoint is enough: require_parameters keeps OpenRouter on
+        # endpoints that accept every parameter sent.
         required_params = {"tools", "tool_choice"}
-        missing_required = sorted(required_params - supports)
+        missing_required = sorted(required_params - supported_somewhere)
         if missing_required:
             raise PermanentError(
                 f"OpenRouter model {request.model.model} does not support required parameter(s): "
@@ -376,7 +389,7 @@ class OpenRouterProvider:
             tools.append(_tool_definition(request.tool))
         body["tools"] = tools
 
-        mode, choice = _tool_choice(request.model.model, request.tool.name)
+        mode, choice = _tool_choice(request.model.model, request.tool.name, supported_somewhere)
         body["tool_choice"] = choice
         body[max_token_field] = request.model.max_tokens
 
@@ -402,7 +415,7 @@ class OpenRouterProvider:
         if self.client is None:
             raise PermanentError("OPENROUTER_API_KEY is not set")
         body = self.build_body(request)
-        mode, _ = _tool_choice(request.model.model, request.tool.name)
+        mode = "forced" if isinstance(body.get("tool_choice"), Mapping) else "auto"
         started = time.monotonic()
         try:
             sdk_body = {key: value for key, value in body.items() if key in _SDK_BODY_FIELDS}

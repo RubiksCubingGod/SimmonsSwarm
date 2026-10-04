@@ -563,3 +563,60 @@ def test_luna_validation_respects_provider_pins():
     assert check_models({"sender": pinned}, catalog) == ()
     with pytest.raises(ValueError, match="params.seed"):
         check_models({"sender": unpinned}, catalog)
+
+
+GLM = "z-ai/glm-5.3-flash"
+QWEN = "qwen/qwen3.7-flash"
+
+
+def _tool_choice_catalog():
+    # Recorded 2026-10-04. glm-5.3-flash: 35 endpoints, one (dekallm) omits
+    # tool_choice and several cannot force a named tool. qwen3.7-flash: one
+    # endpoint (alibaba) that allows tool_choice "auto" but not a named tool.
+    return load_catalog(FIXTURES / "tool-choice-catalog.json")
+
+
+def test_one_endpoint_without_tool_choice_does_not_refuse_the_model():
+    captured: list[httpx2.Request] = []
+    provider, http_client = _provider(
+        GLM, body=_recorded("gpt-tool-call.json"), catalog=_tool_choice_catalog(), on_request=captured.append
+    )
+    try:
+        request = _request(GLM, temperature=None, tool=_tool("send_message"))
+        body = provider.build_body(request)
+        response = provider.complete(request)
+    finally:
+        http_client.close()
+
+    assert body["tool_choice"] == {"type": "function", "function": {"name": "send_message"}}
+    assert body["provider"]["require_parameters"] is True
+    assert response.tool_choice_mode == "forced"
+    assert json.loads(captured[0].content)["tool_choice"]["function"]["name"] == "send_message"
+
+
+def test_a_route_that_cannot_force_a_named_tool_falls_back_to_auto():
+    provider, http_client = _provider(QWEN, body=_recorded("gpt-tool-call.json"), catalog=_tool_choice_catalog())
+    try:
+        request = _request(QWEN, temperature=None, tool=_tool("send_message"))
+        body = provider.build_body(request)
+        response = provider.complete(request)
+        pinned = provider.build_body(
+            _request(GLM, temperature=None, params={"provider": {"only": ["novita"]}}, tool=_tool("send_message"))
+        )
+    finally:
+        http_client.close()
+
+    assert body["tool_choice"] == "auto"
+    assert response.tool_choice_mode == "auto"
+    # Pinned to an endpoint that cannot force a named tool: auto, not a 404.
+    assert pinned["tool_choice"] == "auto"
+
+
+def test_catalog_without_tool_choice_detail_keeps_forcing():
+    provider, http_client = _provider(GPT, GPT_PARAMS)
+    try:
+        body = provider.build_body(_request(GPT, temperature=None, tool=_tool("send_message")))
+    finally:
+        http_client.close()
+
+    assert body["tool_choice"] == {"type": "function", "function": {"name": "send_message"}}
