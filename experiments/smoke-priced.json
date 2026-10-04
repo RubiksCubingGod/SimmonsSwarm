@@ -1,0 +1,21 @@
+{
+  "name": "smoke-priced",
+  "description": "Priced fake run whose conservative per-call reservations stop below its cap.",
+  "option_set": "tests/fixtures/option-sets/smoke-100.json",
+  "episodes": 20,
+  "seed": 7,
+  "sender_prompt": "tests/fixtures/prompts/sender-reference.md",
+  "guard_prompt": "tests/fixtures/prompts/guard-reference.md",
+  "plain_sender_prompt": "tests/fixtures/prompts/plain-reference.md",
+  "cover_task": "tests/fixtures/cover-task.md",
+  "templates": "templates/au-meeting",
+  "models": {
+    "default": {
+      "model": "fake:covert",
+      "max_tokens": 512,
+      "params": {"price_out": 1.5, "bill_max_tokens": true}
+    }
+  },
+  "sender_debrief": "blind",
+  "max_cost_usd": 0.05
+}

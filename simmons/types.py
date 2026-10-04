@@ -97,9 +97,16 @@ class RoleResponse:
 class TransientError(Exception):
     """Provider failure that the episode loop may retry with backoff."""
 
-    def __init__(self, message: str = "", retry_after_s: float | None = None):
+    def __init__(
+        self,
+        message: str = "",
+        retry_after_s: float | None = None,
+        *,
+        network_down: bool = False,
+    ):
         super().__init__(message)
         self.retry_after_s = retry_after_s
+        self.network_down = network_down
 
 
 class PermanentError(Exception):
@@ -208,7 +215,12 @@ class Reservation:
 
 class Breaker(Protocol):
     def reserve(
-        self, attempt_id: str, body: Mapping[str, Any], spec: ModelSpec
+        self,
+        attempt_id: str,
+        body: Mapping[str, Any],
+        spec: ModelSpec,
+        *,
+        request_hash: str | None = None,
     ) -> Reservation: ...
 
     def settle(self, reservation: Reservation, response: RoleResponse) -> None: ...
@@ -269,6 +281,13 @@ class EpisodeContext:
     payload: Payload
     scorer: Scorer
     run_id: str = ""
+    resolved_models: Mapping[str, ModelSpec | None] = field(default_factory=dict)
+    breaker: Breaker | None = None
+    request_log_path: str | None = None
+    calls_log_path: str | None = None
+    events_log_path: str | None = None
+    wave: int = 1
+    attempt_log: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)

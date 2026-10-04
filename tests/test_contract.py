@@ -125,7 +125,7 @@ def test_frozen_types_and_exit_interview_contract():
 
 def test_frozen_seams_are_importable_with_declared_signatures():
     expected = {
-        "simmons.inputs": {"load": ("config",), "snapshot": ("inputs", "destination")},
+        "simmons.inputs": {"load": ("config", "repo_root"), "snapshot": ("inputs", "destination")},
         "simmons.plan": {"build_plan": ("config", "options", "start")},
         "simmons.visibility": {"build_view": ("role", "state", "config", "inputs")},
         "simmons.render": {"render": ("template", "view")},
@@ -135,6 +135,9 @@ def test_frozen_seams_are_importable_with_declared_signatures():
             "request_for": ("role", "state", "config", "inputs", "model"),
         },
         "simmons.episode": {"run_episode": ("line", "ctx")},
+        "simmons.runner": {
+            "run": ("config", "fake", "scratch", "episodes", "seed", "max_cost", "json_output")
+        },
         "simmons.catalog": {"load_catalog": ("path",)},
         "simmons.metrics": {"summarize": ("episodes",)},
         "simmons.spend": {
@@ -154,7 +157,7 @@ def test_frozen_seams_are_importable_with_declared_signatures():
     assert tuple(inspect.signature(importlib.import_module("simmons.catalog").Catalog.lookup).parameters) == ("self", "slug")
     spend_breaker = importlib.import_module("simmons.spend").Breaker
     for name, parameters in {
-        "reserve": ("self", "attempt_id", "body", "spec"),
+        "reserve": ("self", "attempt_id", "body", "spec", "request_hash"),
         "settle": ("self", "reservation", "response"),
         "unresolved": ("self", "reservation", "reason"),
         "tripped": ("self",),
@@ -164,6 +167,9 @@ def test_frozen_seams_are_importable_with_declared_signatures():
         if isinstance(member, property):
             member = member.fget
         assert tuple(inspect.signature(member).parameters) == parameters
+    reserve_hash = inspect.signature(spend_breaker.reserve).parameters["request_hash"]
+    assert reserve_hash.default is None
+    assert reserve_hash.kind is inspect.Parameter.KEYWORD_ONLY
     request_for = importlib.import_module("simmons.roles").request_for
     assert inspect.signature(request_for).return_annotation is RoleRequest
     for module_name, name in (

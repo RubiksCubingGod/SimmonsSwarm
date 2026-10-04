@@ -92,6 +92,15 @@ def test_reservation_uses_utf8_body_bytes_and_reasoning_budget(tmp_path):
     assert row["request_sha256"] == request_sha256(body)
     assert row["event"] == "reserve"
 
+    canonical_hash = "c" * 64
+    canonical_reservation = spend.Breaker(0.1, tmp_path / "canonical-spend.jsonl").reserve(
+        "a2", body, spec, request_hash=canonical_hash
+    )
+    canonical_row = read_jsonl(tmp_path / "canonical-spend.jsonl")[0]
+    assert canonical_reservation.usd == pytest.approx(expected)
+    assert canonical_row["usd"] == pytest.approx(expected)
+    assert canonical_row["request_sha256"] == canonical_hash
+
 
 def test_real_price_source_covers_fallback_routes_and_respects_hard_route_filters():
     class _Catalog:

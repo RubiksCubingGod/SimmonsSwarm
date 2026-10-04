@@ -390,8 +390,10 @@ def compute_ids(config: Config, repo_root: str | Path | None = None) -> dict[str
         option_values = json.loads(option_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"option_set: cannot resolve its option count: {exc}") from exc
+    if isinstance(option_values, dict):
+        option_values = option_values.get("options")
     if not isinstance(option_values, list):
-        raise ValueError("option_set: object-form support lands in v1.1")
+        raise ValueError("option_set: must be an array or an object with an options array")
 
     file_hashes = {
         "option_set": _sha256(option_bytes),

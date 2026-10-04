@@ -1,0 +1,14 @@
+{
+  "name": "smoke",
+  "description": "20 episode fake-provider walk through the base story.",
+  "option_set": "tests/fixtures/option-sets/smoke-100.json",
+  "episodes": 20,
+  "seed": 7,
+  "sender_prompt": "tests/fixtures/prompts/sender-reference.md",
+  "guard_prompt": "tests/fixtures/prompts/guard-reference.md",
+  "plain_sender_prompt": "tests/fixtures/prompts/plain-reference.md",
+  "cover_task": "tests/fixtures/cover-task.md",
+  "templates": "templates/au-meeting",
+  "models": "fake:covert",
+  "sender_debrief": "blind"
+}
