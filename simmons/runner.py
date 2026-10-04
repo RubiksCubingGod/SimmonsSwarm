@@ -33,7 +33,7 @@ from .providers.base import get_provider
 from .records import append_jsonl, canonical_json, read_jsonl, request_sha256, write_metadata
 from .scorers import get_scorer
 from .scorers import exact_match as _exact_match_scorer  # register the M1 scorer
-from .spend import Breaker, BreakerTripped, between_waves, check_before_run, estimate, run_cap
+from .spend import Breaker, BreakerTripped, between_waves, check_before_run, estimate_breakdown, run_cap
 from .types import EpisodeContext, EpisodeState, ModelSpec, RoleResponse, Target, TransientError
 from .visibility import build_view
 from .roles import tool_for
@@ -433,6 +433,16 @@ def _summary_record(
         run_record.get("episodes_planned", config.get("episodes", len(episode_records)))
     )
     metrics_value["counts"]["done"] = len(episode_records)
+    # Episode records carry episode spend only; the preflight probes are billed
+    # before the first episode and recorded on the run.
+    cost = metrics_value.get("cost")
+    if isinstance(cost, dict):
+        preflight_usd = run_record.get("preflight_usd", 0.0)
+        if isinstance(preflight_usd, bool) or not isinstance(preflight_usd, (int, float)):
+            preflight_usd = 0.0
+        cost["episodes_usd"] = cost.get("usd", 0.0)
+        cost["preflight_usd"] = round(float(preflight_usd), 6)
+        cost["usd"] = round(cost["episodes_usd"] + cost["preflight_usd"], 6)
     model_config = Config.model_validate(
         {field: value for field, value in config.items() if field in Config.model_fields}
     )
@@ -609,7 +619,8 @@ def run_experiment(
         catalog = None
         if any(spec is not None and spec.provider != "fake" for spec in resolved.values()):
             catalog = load_catalog(root / ".simmons" / "openrouter-catalog.json")
-        estimate_usd = estimate(config, plan, inputs=inputs, catalog=catalog)
+        estimate_detail = estimate_breakdown(config, plan, inputs=inputs, catalog=catalog)
+        estimate_usd = estimate_detail["estimate_usd"]
         check_before_run(config, estimate_usd, remaining_usd=remaining_usd)
     except _ProviderUnavailable as exc:
         return 4, _with_cli_fields(4, {"status": "failed", "error": str(exc)})
@@ -631,6 +642,8 @@ def run_experiment(
             "episodes": len(plan),
             "kinds": dict(sorted(kinds.items())),
             "estimate_usd": estimate_usd,
+            "estimate": estimate_detail,
+            "cap_usd": run_cap(config, max_cost),
             "run_dir": None,
         })
 
@@ -680,6 +693,7 @@ def run_experiment(
         "cap_usd": run_cap(config, max_cost),
         "spent_usd": 0.0,
         "preflight": {},
+        "preflight_usd": 0.0,
     }
 
     raw_request_path = run_dir / "requests.jsonl"
@@ -738,15 +752,18 @@ def run_experiment(
         _emit_start = events.emit
         _emit_start("run_start", run_id=run_id, path=events_path, experiment=config.name, episodes=len(plan))
         try:
+            preflight_start = breaker.spent_usd()
             try:
                 run_record["preflight"] = _preflight(ctx, plan)
             except (CallFailure, RuntimeError, ValueError, BreakerTripped) as exc:
+                run_record["preflight_usd"] = breaker.spent_usd() - preflight_start
                 if isinstance(exc, BreakerTripped):
                     status, exit_code = "stopped_budget", 3
                 else:
                     status, exit_code = "failed", 4
                     run_record["preflight_error"] = str(exc)
                 raise _StopRun from exc
+            run_record["preflight_usd"] = breaker.spent_usd() - preflight_start
             for model_name, check in run_record["preflight"].get("sender_reasoning", {}).items():
                 if check.get("carried") is False:
                     import sys

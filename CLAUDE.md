@@ -71,7 +71,7 @@ Set `OPENROUTER_API_KEY` in ignored root `.env` only for live work. The runner c
 
 ## Real runs and spend
 
-`simmons run <experiment> --dry-run` estimates cost and checks the key without writing a run. A real run must fit `max_cost_usd` and reported credit. Reservations use request bytes, output/reasoning limits and cached prices no lower than `provider.max_price`; `usage.cost` settles them and unknown spend stays reserved.
+`simmons run <experiment> --dry-run` estimates cost and checks the key without writing a run. The estimate counts preflight probes, typical output including reasoning, and expected retries, at each model's highest endpoint price; it prints those assumptions and a worst case at the 6-attempt cap. `summary.json` cost includes `preflight_usd`. A real run must fit `max_cost_usd` and reported credit. Reservations use request bytes, output/reasoning limits and cached prices no lower than `provider.max_price`; `usage.cost` settles them and unknown spend stays reserved.
 
 ## Choosing models
 

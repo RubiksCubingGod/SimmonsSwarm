@@ -12,8 +12,8 @@
   "models": {
     "default": {
       "model": "fake:covert",
-      "max_tokens": 512,
-      "params": {"price_out": 1.5, "bill_max_tokens": true}
+      "max_tokens": 2048,
+      "params": {"price_out": 1.0, "bill_max_tokens": true}
     }
   },
   "sender_debrief": "blind",

@@ -75,7 +75,7 @@ def test_run_experiment_uses_local_trajectory_only_for_fake_or_scratch(
     monkeypatch.setattr(runner, "_provider_instances", provider_instances)
     monkeypatch.setattr(runner, "_find_trajectory", find_trajectory)
     monkeypatch.setattr(runner, "load_catalog", lambda *args, **kwargs: None)
-    monkeypatch.setattr(runner, "estimate", lambda *args, **kwargs: 0.0)
+    monkeypatch.setattr(runner, "estimate_breakdown", lambda *args, **kwargs: {"estimate_usd": 0.0})
 
     for overrides, expected in (({}, False), ({"scratch": True}, True), ({"fake": True}, True)):
         code, result = run_experiment(config, repo_root=ROOT, dry_run=True, **overrides)
@@ -709,3 +709,33 @@ def test_verify_accepts_committed_run_without_calls_or_events_logs(tmp_path: Pat
     (copied / "events.jsonl").unlink()
 
     assert verify_run(copied) == []
+
+
+def test_summary_cost_includes_preflight_and_matches_the_ledger():
+    raw = json.loads((ROOT / PRICED).read_text(encoding="utf-8"))
+    raw.update({"name": "priced-complete", "episodes": 3, "max_cost_usd": 1.0})
+    config = Config.model_validate(raw)
+
+    code, dry_run = _run(config, dry_run=True)
+    assert code == 0
+    detail = dry_run["estimate"]
+    assert detail["preflight_usd"] > 0
+    assert dry_run["estimate_usd"] == pytest.approx(detail["episodes_usd"] + detail["preflight_usd"])
+    assert detail["worst_case_usd"] > dry_run["estimate_usd"]
+
+    code, result = _run(config)
+    assert code == 0
+    run_dir = Path(result["run_dir"])
+    run_record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    cost = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))["cost"]
+    preflight_spend = sum(
+        row["usd"]
+        for row in read_jsonl(run_dir / "spend.jsonl")
+        if row["event"] == "settle" and ":preflight-" in row["attempt_id"]
+    )
+
+    assert run_record["preflight_usd"] == pytest.approx(preflight_spend)
+    assert cost["preflight_usd"] == pytest.approx(preflight_spend, abs=1e-6)
+    assert cost["usd"] == pytest.approx(cost["episodes_usd"] + cost["preflight_usd"], abs=1e-6)
+    assert cost["usd"] == pytest.approx(run_record["spent_usd"], abs=1e-5)
+    assert verify_run(run_dir) == []

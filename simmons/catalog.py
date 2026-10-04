@@ -102,14 +102,14 @@ def _model_info(record: JsonObject) -> ModelInfo:
         context_length = min(endpoint_contexts, default=0)
 
     endpoint_parameters = [
-        _string_set(endpoint.get("supported_parameters"))
+        (_endpoint_host(endpoint), _string_set(endpoint.get("supported_parameters")))
         for endpoint in endpoints
         if isinstance(endpoint, Mapping)
     ]
     supported_parameters: frozenset[str] = frozenset()
     if endpoint_parameters:
-        common = set(endpoint_parameters[0])
-        for parameters in endpoint_parameters[1:]:
+        common = set(endpoint_parameters[0][1])
+        for _host, parameters in endpoint_parameters[1:]:
             common.intersection_update(parameters)
         supported_parameters = frozenset(common)
 
@@ -124,8 +124,8 @@ def _model_info(record: JsonObject) -> ModelInfo:
         output_price = _price_per_million(pricing.get("completion"))
         if input_price is None or output_price is None:
             continue
-        host = endpoint.get("tag") or endpoint.get("provider_name")
-        if not isinstance(host, str) or not host:
+        host = _endpoint_host(endpoint)
+        if not host:
             continue
         endpoint_prices.append((host, input_price, output_price))
 
@@ -135,7 +135,55 @@ def _model_info(record: JsonObject) -> ModelInfo:
         supports_tools="tools" in supported_parameters,
         endpoint_prices=tuple(endpoint_prices),
         supported_parameters=supported_parameters,
+        endpoint_parameters=tuple((host, parameters) for host, parameters in endpoint_parameters if host),
     )
+
+
+def _endpoint_host(endpoint: JsonObject) -> str:
+    host = endpoint.get("tag") or endpoint.get("provider_name")
+    return host if isinstance(host, str) else ""
+
+
+def _names(value: Any) -> list[str] | None:
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [item.lower() for item in value if isinstance(item, str)]
+    return None
+
+
+def _host_matches(host: str, names: list[str]) -> bool:
+    host = host.lower()
+    return host in names or host.split("/", 1)[0] in names
+
+
+def route_parameters(
+    info: ModelInfo, provider_params: Mapping[str, Any] | None = None
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Return (supported by every routed endpoint, supported by any routed endpoint).
+
+    Routed endpoints are the ones ``provider.only`` or ``provider.order`` names,
+    matched by endpoint tag or its provider prefix, minus ``provider.ignore``.
+    Without a pin, every endpoint is routed. A pin that matches no catalog
+    endpoint falls back to every endpoint.
+    """
+    endpoints = list(info.endpoint_parameters)
+    if not endpoints:
+        return info.supported_parameters, info.supported_parameters
+    routing = provider_params if isinstance(provider_params, Mapping) else {}
+    pinned = _names(routing.get("only"))
+    if pinned is None:
+        pinned = _names(routing.get("order"))
+    if pinned:
+        selected = [item for item in endpoints if _host_matches(item[0], pinned)]
+        endpoints = selected or endpoints
+    ignored = _names(routing.get("ignore"))
+    if ignored:
+        endpoints = [item for item in endpoints if not _host_matches(item[0], ignored)] or endpoints
+    every = set(endpoints[0][1])
+    some: set[str] = set()
+    for _host, parameters in endpoints:
+        every.intersection_update(parameters)
+        some.update(parameters)
+    return frozenset(every), frozenset(some)
 
 
 def _load_catalog(path: Path, clock: Callable[[], float]) -> Catalog:
@@ -320,10 +368,11 @@ def check_models(
             errors.append(f"{path}: model {spec.model!r} has no priced endpoints.")
 
         model_params = set(spec.params) - {"provider"}
-        for parameter in sorted(model_params - info.supported_parameters):
+        routed, _ = route_parameters(info, spec.params.get("provider"))
+        for parameter in sorted(model_params - routed):
             errors.append(
                 f"{path}.params.{parameter}: model {spec.model!r} does not support "
-                "this parameter on every serving endpoint."
+                "this parameter on every routed endpoint."
             )
 
         if projected_input_tokens is not None and role in projected_input_tokens:
@@ -353,4 +402,5 @@ __all__ = [
     "check_models",
     "load_catalog",
     "refresh_catalog",
+    "route_parameters",
 ]
