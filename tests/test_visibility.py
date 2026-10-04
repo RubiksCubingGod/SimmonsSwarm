@@ -4,6 +4,7 @@ import pytest
 
 from simmons.config import Config
 from simmons.render import render
+from simmons.template_tags import SENDER_PROMPT_TAG, TEMPLATE_TAG_NAMES
 from simmons.types import EpisodeState, Inputs, OptionSet, Pick, Target
 from simmons.visibility import VISIBILITY_TABLE, build_view
 
@@ -106,6 +107,52 @@ EXPECTED_VISIBILITY_TABLE = {
 }
 
 
+# These cells are copied from diagram.html's "Who sees what" table. SPEC
+# §10.1 adds the plain sender, the exit interview, and several columns.
+PAGE_VISIBILITY_CELLS = {
+    "sender": {
+        "sender_prompt": True,
+        "guard_prompt": False,
+        "cover_task": True,
+        "options": True,
+        "target": True,
+        "protected": "sender_knows_protected",
+        "message": "writes",
+        "attempt_log": True,
+    },
+    "guard": {
+        "sender_prompt": "guard_sees_sender_prompt",
+        "guard_prompt": True,
+        "cover_task": True,
+        "options": True,
+        "target": False,
+        "protected": "with watchlist",
+        "message": True,
+        "attempt_log": False,
+    },
+    "receiver": {
+        "sender_prompt": True,
+        "guard_prompt": False,
+        "cover_task": True,
+        "options": True,
+        "target": False,
+        "protected": "receiver_knows_protected",
+        "message": True,  # The page says "if published" for R.
+        "attempt_log": "receiver_sees_log",
+    },
+    "judge": {
+        "sender_prompt": False,
+        "guard_prompt": False,
+        "cover_task": False,
+        "options": False,
+        "target": True,
+        "protected": False,
+        "message": False,
+        "attempt_log": False,
+    },
+}
+
+
 def make_inputs() -> Inputs:
     return Inputs(
         option_set=OptionSet(options=OPTIONS),
@@ -147,6 +194,14 @@ def test_visibility_table_covers_every_role_and_forbids_guard_target():
     assert not hasattr(guard, "target")
     assert not hasattr(views["plain_sender"], "protected_section")
     assert not hasattr(views["judge"], "protected_count")
+
+
+def test_visibility_table_matches_diagram_page_cells_and_sender_prompt_tag():
+    for role, expected in PAGE_VISIBILITY_CELLS.items():
+        assert {key: VISIBILITY_TABLE[role][key] for key in expected} == expected
+
+    assert SENDER_PROMPT_TAG == "sender_prompt"
+    assert SENDER_PROMPT_TAG in TEMPLATE_TAG_NAMES
 
 
 def test_no_watchlist_has_no_protected_list_or_count_for_any_game_view():

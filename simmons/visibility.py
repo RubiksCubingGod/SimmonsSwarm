@@ -9,6 +9,7 @@ from typing import Any
 
 from .config import Config
 from .payloads.option import OptionPayload
+from .template_tags import SENDER_PROMPT_TAG
 from .types import (
     EpisodeState,
     GuardView,
@@ -269,7 +270,7 @@ def build_view(role: str, state: EpisodeState, config: Config, inputs: Inputs) -
             raise ValueError("guard view requires the sender's message")
         sender_prompt_section = ""
         if config.guard_sees_sender_prompt:
-            sender_prompt_section = _tag("sender_prompt", inputs.sender_prompt)
+            sender_prompt_section = _tag(SENDER_PROMPT_TAG, inputs.sender_prompt)
         return _with_rendered_sections(
             GuardView(
                 role=role,
