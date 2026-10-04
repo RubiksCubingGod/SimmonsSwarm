@@ -248,6 +248,8 @@ class FakeProvider:
             return _send_input(request, rng)
         if request.tool.name == "review_message":
             return _guard_input(request, rng), None
+        if request.tool.name == "score_pick":
+            return _judge_input(request), None
         if request.tool.name == "pick_option":
             return _receiver_input(
                 request,
@@ -622,6 +624,15 @@ def _read_prior_reasoning(
     if seal != expected_seal or _code_for_target(target, options) != code:
         return None
     return code, target
+
+
+def _judge_input(request: RoleRequest) -> dict[str, Any]:
+    """Score 1 when the <pick> names the <target>, ignoring case and spacing."""
+    text = _request_text(request)
+    target = _normalized(_tag_value(text, "target"))
+    pick = _normalized(_tag_value(text, "pick"))
+    hit = bool(target) and bool(pick) and (pick == target or target in pick)
+    return _fit_schema({"score": 1.0 if hit else 0.0, "reason": "Seeded fake judge."}, request)
 
 
 def _fit_schema(candidate: Mapping[str, Any], request: RoleRequest) -> dict[str, Any]:

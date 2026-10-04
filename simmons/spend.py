@@ -691,6 +691,8 @@ def _preflight_calls(config: Config, plan: Sequence[PlanRecord]) -> list[tuple[s
         for role in ("sender", "plain_sender", "guard", "receiver")
         if role in role_line
     ]
+    if config.scorer != "exact_match":
+        calls.append(("judge", role_line["receiver"]))
     if config.sender_debrief != "off" and "sender" in role_line:
         calls.extend([("sender_debrief", role_line["sender"])] * 2)
     return calls
@@ -746,6 +748,8 @@ def estimate_breakdown(
             roles = ["plain_sender", "guard", "receiver"]
         if config.scorer != "exact_match" and specs.get("judge") is not None:
             roles.append("judge")
+            if config.payload == "text" and config.guard_guesses_target:
+                roles.append("judge")  # the guard's free-text guess is judged too
         calls.extend(("episodes", role, line, history_count) for role in roles)
 
     expected = {"episodes": Decimal(0), "preflight": Decimal(0)}

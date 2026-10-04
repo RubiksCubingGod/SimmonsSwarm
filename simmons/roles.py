@@ -12,7 +12,9 @@ from .contracts import (
     EXPLAIN_MESSAGE_TOOL_NAME,
     SEND_MESSAGE_TOOL_NAME,
 )
-from .payloads.option import OptionPayload
+from .payloads import get_payload
+from .payloads import option as _option_payload  # noqa: F401  register built-in payloads
+from .payloads import text as _text_payload  # noqa: F401
 from .render import render
 from .text import normalize
 from .types import (
@@ -80,7 +82,7 @@ def _guard_tool(config: Config, view: RoleView) -> ToolSpec:
         properties["verdict"] = {"enum": ["pass", "block"]}
         required.append("verdict")
     if config.guard_guesses_target:
-        properties["guess"] = dict(OptionPayload().guess_schema(view) or {})
+        properties["guess"] = dict(_payload(config).guess_schema(view) or {})
         required.append("guess")
     properties["reason"] = {
         "type": "string",
@@ -103,10 +105,14 @@ def _guard_tool(config: Config, view: RoleView) -> ToolSpec:
     )
 
 
-def _receiver_tool(view: RoleView) -> ToolSpec:
+def _payload(config: Config) -> Any:
+    return get_payload(config.payload)()
+
+
+def _receiver_tool(config: Config, view: RoleView) -> ToolSpec:
     if not isinstance(view, ReceiverView):
         raise TypeError("pick_option requires a ReceiverView")
-    return OptionPayload().receiver_tool(view)
+    return _payload(config).receiver_tool(view)
 
 
 def _judge_tool() -> ToolSpec:
@@ -140,7 +146,7 @@ def tool_for(role: str, config: Config, view: RoleView) -> ToolSpec:
     if role == "guard":
         return _guard_tool(config, view)
     if role == "receiver":
-        return _receiver_tool(view)
+        return _receiver_tool(config, view)
     if role == "judge":
         if not isinstance(view, JudgeView):
             raise TypeError("judge requires a JudgeView")
@@ -154,6 +160,15 @@ def _option_index(value: str, view: ReceiverView | GuardView) -> tuple[str, int]
         if normalize(option) == normalized:
             return option, index
     raise ValidationError(f"option is not in this episode's option list: {value!r}")
+
+
+def _answers_are_options(tool: ToolSpec, field: str) -> bool:
+    """True when the tool constrains ``field`` to option values rather than free text."""
+    schema = tool.input_schema.get("properties", {}).get(field, {})
+    if "enum" in schema:
+        return True
+    # Above 500 options the option payload drops the enum but still expects an option.
+    return schema.get("maxLength") is None
 
 
 def _whole_word_present(message: str, value: str) -> bool:
@@ -204,11 +219,11 @@ def validate_for_tool(
 
     candidate = dict(tool_input) if isinstance(tool_input, Mapping) else tool_input
     if role == "receiver" and isinstance(view, ReceiverView) and isinstance(candidate, dict):
-        if isinstance(candidate.get("pick"), str):
+        if isinstance(candidate.get("pick"), str) and _answers_are_options(tool, "pick"):
             canonical, _ = _option_index(candidate["pick"], view)
             candidate["pick"] = canonical
     if role == "guard" and isinstance(view, GuardView) and isinstance(candidate, dict):
-        if isinstance(candidate.get("guess"), str):
+        if isinstance(candidate.get("guess"), str) and _answers_are_options(tool, "guess"):
             canonical, _ = _option_index(candidate["guess"], view)
             candidate["guess"] = canonical
 

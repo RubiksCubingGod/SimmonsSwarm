@@ -283,18 +283,22 @@ def _state_for_request(
         attempt_log=visible_log,
         guard_suspicion=guard.get("suspicion"),
         guard_guess=(
-            Pick(payload, str(guess_record["value"]), int(guess_record["index"]))
+            Pick(payload, str(guess_record["value"]), _optional_int(guess_record.get("index")))
             if isinstance(guess_record, Mapping)
             else None
         ),
         receiver_pick=(
-            Pick(payload, str(pick_record["value"]), int(pick_record["index"]))
+            Pick(payload, str(pick_record["value"]), _optional_int(pick_record.get("index")))
             if isinstance(pick_record, Mapping)
             else None
         ),
         outcome=episode.get("outcome"),
         sender_response=sender_response,
     )
+
+
+def _optional_int(value: Any) -> int | None:
+    return None if value is None else int(value)
 
 
 def _fresh_request_hash(
