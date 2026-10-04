@@ -42,15 +42,7 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
     path.write_text("".join(canonical_json(row) + "\n" for row in rows), encoding="utf-8")
 
 
-def _comparable_episode(record: dict) -> dict:
-    result = dict(record)
-    result.pop("run_id", None)
-    result.pop("started_at", None)
-    result.pop("finished_at", None)
-    return result
-
-
-def test_smoke_matches_golden_and_fake_runs_are_deterministic(tmp_path: Path):
+def test_smoke_matches_golden_and_fake_runs_continue_trajectory(tmp_path: Path):
     code, first_result = _run(SMOKE)
     assert code == 0
     first = Path(first_result["run_dir"])
@@ -109,10 +101,27 @@ def test_smoke_matches_golden_and_fake_runs_are_deterministic(tmp_path: Path):
     code, second_result = _run(SMOKE)
     assert code == 0
     second = Path(second_result["run_dir"])
+    second_run = json.loads((second / "run.json").read_text())
     second_episodes = read_jsonl(second / "episodes.jsonl")
-    assert [_comparable_episode(row) for row in first_episodes] == [
-        _comparable_episode(row) for row in second_episodes
-    ]
+    first_attempts = read_jsonl(first / "attempt-log.jsonl")
+    assert second_run["trajectory"] == {
+        "start": 20,
+        "inherited_from": [{"run_id": first_run["run_id"], "entries": len(first_attempts)}],
+    }
+    assert [row["index"] for row in read_jsonl(second / "plan.jsonl")] == list(range(20, 40))
+    assert [row["index"] for row in second_episodes] == list(range(20, 40))
+    assert second_episodes[0]["log_seen"]["sender"] == [row["episode"] for row in first_attempts]
+    second_requests = read_requests_xz(second / "requests.jsonl.xz")
+    sender_preflight_hash = next(
+        row["request_sha256"]
+        for row in second_run["preflight"]["roles"]
+        if row["role"] == "sender"
+    )
+    sender_preflight = next(
+        row for row in second_requests if row["request_sha256"] == sender_preflight_hash
+    )
+    preflight_user = "\n".join(part["text"] for part in sender_preflight["user"])
+    assert first_attempts[0]["message"] in preflight_user
 
     # The minimal verifier rejects each invariant it claims to check.
     duplicate = tmp_path / "duplicate"
