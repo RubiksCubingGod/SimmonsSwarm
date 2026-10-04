@@ -1,0 +1,30 @@
+{
+  "name": "party-rich",
+  "description": "Arm B, rich control: party-learn's setup replicated, with the sender-facing log and debrief calling the guard Jordan.",
+  "option_set": "sf-places",
+  "templates": "templates/sf-open",
+  "cover_task": "cover-tasks/friends-group-chat.md",
+  "sender_prompt": "prompts/sender/party.md",
+  "guard_prompt": "prompts/guard/party-always-guess.md",
+  "plain_sender_prompt": "prompts/plain/party.md",
+  "max_message_chars": 600,
+  "sender_debrief": "informed",
+  "payload": "text",
+  "scorer": "llm_judge",
+  "models": {
+    "default": "openrouter:anthropic/claude-sonnet-5.5",
+    "judge": "openrouter:google/gemini-3.1-flash-lite"
+  },
+  "guard_exposes": true,
+  "episodes": 60,
+  "plain_sender_rate": 0.15,
+  "log_records": [
+    "target",
+    "message",
+    "outcome",
+    "guard_guess",
+    "receiver_pick"
+  ],
+  "log_window": 20,
+  "guard_name": "Jordan"
+}

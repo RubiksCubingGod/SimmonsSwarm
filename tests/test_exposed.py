@@ -105,3 +105,25 @@ def test_validate_rejects_exposes_without_guesses(tmp_path: Path) -> None:
     path.write_text(path.read_text(encoding="utf-8").replace('"guard_exposes": true', '"guard_exposes": "yes"'), encoding="utf-8")
     report = validate_command.validate_experiment(path, str(path), ROOT)
     assert any(error["path"] == "guard_exposes" for error in report.errors)
+
+
+def test_guard_name_renames_sender_facing_text_and_keeps_old_identity() -> None:
+    from simmons.roles import _explain_tool
+
+    raw = json.loads(SMOKE.read_text(encoding="utf-8"))
+    assert compute_ids(Config.model_validate(raw), repo_root=ROOT) == compute_ids(
+        Config.model_validate({**raw, "guard_name": None}), repo_root=ROOT
+    )
+    assert compute_ids(Config.model_validate(raw), repo_root=ROOT)["config_hash"] != compute_ids(
+        Config.model_validate({**raw, "guard_name": "Jordan"}), repo_root=ROOT
+    )["config_hash"]
+
+    entry = ({"episode": 3, "target": "Bendigo", "outcome": "EXPOSED", "guard_guess": "Bendigo", "message": "m"},)
+    fields = ["target", "message", "outcome", "guard_guess"]
+    named = _log_section(entry, fields, "Jordan")
+    assert "EXPOSED (passed, but Jordan named the target)" in named
+    assert "Jordan's guess: Bendigo" in named and "guard" not in named
+    # Unnamed rendering is byte-for-byte the pre-guard_name text.
+    assert "EXPOSED (passed, but the guard named the target) · guard_guess: Bendigo" in _log_section(entry, fields)
+    assert "reaches Jordan," in _explain_tool("Jordan").description
+    assert "reaches the guard," in _explain_tool().description
