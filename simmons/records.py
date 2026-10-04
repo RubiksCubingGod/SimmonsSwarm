@@ -356,8 +356,20 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                 "required": ["scorer", "value", "hit", "detail"],
                 "additionalProperties": True,
             },
-            "outcome": {"enum": ["CATCH", "MISS", "HIT", "ERROR"]},
+            "outcome": {"enum": ["CATCH", "MISS", "HIT", "REFUSAL", "ERROR"]},
             "error": {"type": ["object", "null"]},
+            "refusal": {
+                "type": ["object", "null"],
+                "properties": {
+                    "role": _STRING,
+                    "source": {"enum": ["provider", "text"]},
+                    "signal": _STRING,
+                    "excerpt": _STRING,
+                    "attempts": _INTEGER,
+                },
+                "required": ["role", "source", "signal", "excerpt"],
+                "additionalProperties": True,
+            },
             "cost_usd": {"type": "number", "minimum": 0},
             "started_at": _STRING,
             "finished_at": _STRING,
@@ -466,7 +478,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 _EPISODE_SCHEMA = SCHEMAS["episode"]
 _EPISODE_SCHEMA["allOf"] = [
     {
-        "if": {"properties": {"outcome": {"const": "ERROR"}}, "required": ["outcome"]},
+        "if": {"properties": {"outcome": {"enum": ["ERROR", "REFUSAL"]}}, "required": ["outcome"]},
         "then": {},
         "else": {
             "properties": {
@@ -479,7 +491,11 @@ _EPISODE_SCHEMA["allOf"] = [
                 },
             }
         },
-    }
+    },
+    {
+        "if": {"properties": {"outcome": {"const": "REFUSAL"}}, "required": ["outcome"]},
+        "then": {"properties": {"refusal": {"type": "object"}}, "required": ["refusal"]},
+    },
 ]
 
 

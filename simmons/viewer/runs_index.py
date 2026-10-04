@@ -143,6 +143,7 @@ def _index_data(
                     "false_alarm": _rate(summary, "false_alarm_rate"),
                 },
                 "decode_gap": decode.get("gap") if isinstance(decode, Mapping) else None,
+                "refusals": (summary.get("counts") or {}).get("refusals", 0),
                 "spent_usd": row["spent_usd"],
                 "href": (
                     Path(os.path.relpath(view.resolve(), output.parent.resolve())).as_posix()
@@ -176,7 +177,7 @@ _INDEX_STYLE = (
     ".run-cell a:hover{text-decoration:underline}.models{font-size:13px;color:var(--muted);line-height:1.45}"
     ".models b{color:var(--text);font-weight:600}.tag{display:inline-block;font-size:12px;border:1px solid var(--line);"
     "border-radius:999px;padding:1px 8px;margin:2px 4px 2px 0;color:var(--muted)}.tag.real{color:var(--green);border-color:#2f6b49}"
-    ".tag.fake{color:var(--gold);border-color:#6d5a2c}.chip{display:flex;gap:6px;align-items:baseline;min-height:30px;"
+    ".tag.fake{color:var(--gold);border-color:#6d5a2c}.tag.refused{color:var(--purple);border-color:#5b4683}.chip{display:flex;gap:6px;align-items:baseline;min-height:30px;"
     "padding:3px 9px;margin:3px 0;font-size:13px;border-radius:7px;text-align:left;width:100%}"
     ".chip code{font:12px ui-monospace,SFMono-Regular,monospace}.chip .slot{color:var(--muted);min-width:38px}"
     ".chip[aria-expanded=\"true\"]{box-shadow:inset 0 -2px currentColor}td small{display:block;color:var(--muted);font-size:12px}"
@@ -217,7 +218,7 @@ function update(){
  body.replaceChildren();
  for(const r of rows){
   const row=add(body,"tr");const run=add(row,"td","","run-cell");add(run,"strong",r.experiment);if(r.href){const a=add(run,"a",r.run_id);a.href=r.href;}else add(run,"span",r.run_id);add(run,"small",`${show(r.started_at).replace("T"," ").replace(/\.\d+Z$/,"Z")} · ${r.author}`);if(r.view_error)add(run,"small",r.view_error);
-  const status=add(row,"td");add(status,"div",r.status);add(status,"span",r.fake?"fake":"real",`tag ${r.fake?"fake":"real"}`);if(r.root)add(status,"span",`${r.root}/`,"tag");if(r.forked)add(status,"span","fork","tag");add(status,"small",`${show(r.episodes_done)} / ${show(r.episodes_planned)} episodes`);
+  const status=add(row,"td");add(status,"div",r.status);add(status,"span",r.fake?"fake":"real",`tag ${r.fake?"fake":"real"}`);if(r.root)add(status,"span",`${r.root}/`,"tag");if(r.forked)add(status,"span","fork","tag");if(r.refusals)add(status,"span",`${r.refusals} refused`,"tag refused");add(status,"small",`${show(r.episodes_done)} / ${show(r.episodes_planned)} episodes`);
   const models=add(row,"td","","models");for(const [role,label] of [["sender","S"],["receiver","R"],["guard","G"],["plain_sender","Plain"]]){const line=add(models,"div");add(line,"b",`${label} `);line.append(show(r.models?.[role]));}
   rateCell(row,r.rates.hit);rateCell(row,r.rates.catch);rateCell(row,r.rates.false_alarm);add(row,"td",pct(r.decode_gap),"num");add(row,"td",money(r.spent_usd),"num");
   const prompts=add(row,"td");const detail=el("tr","","prompt-row");detail.hidden=true;const detailCell=add(detail,"td");detailCell.colSpan=9;

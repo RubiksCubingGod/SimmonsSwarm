@@ -15,7 +15,7 @@ from jsonschema import ValidationError
 from ..records import read_jsonl, read_requests_xz, request_sha256, validate_record
 
 _ROLES = ("sender", "guard", "receiver", "sender_debrief")
-_OUTCOME_ORDER = ("CATCH", "MISS", "HIT", "ERROR")
+_OUTCOME_ORDER = ("CATCH", "MISS", "HIT", "REFUSAL", "ERROR")
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
