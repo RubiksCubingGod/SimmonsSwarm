@@ -26,6 +26,10 @@ actually established — not merely whether a value happened to match.
 Use the `thinking` fields as the primary evidence of (2) and (3): look at what the
 sender's scheme was before the token was issued versus how it actually sent the token.
 
+# Which condition applies to THIS run
+
+{{CONDITION_RULES}}
+
 # You are given
 
 A per-direction dossier with the timeline, the relevant `thinking` excerpts, the

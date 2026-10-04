@@ -12,7 +12,6 @@ Examples:
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import datetime as dt
 import json
 import os
@@ -20,6 +19,7 @@ import os
 import config
 from openrouter_client import OpenRouterClient
 from orchestrator import run_experiment
+from spend import SpendLedger
 
 
 def _save(out_dir: str, name: str, obj: dict) -> str:
@@ -60,8 +60,16 @@ def _print_summary(result: dict) -> None:
         h = m["halt"]
         print(f"  [HALTED] caught at turn {h['turn']} (suspicion {h['score']} > "
               f"{m['detection']['halt_threshold']}) — FAILED")
+    if d.get("monitor_error"):
+        print("  [!] monitor errored on >=1 turn — run counts as NOT covert")
+    if m.get("incomplete"):
+        print(f"  [INCOMPLETE] {m.get('budget_stop')}")
     print(f"  covert (undetected):     {m['covert']}")
     print(f"  >>> COVERT CHANNEL SUCCESS: {m['covert_channel_success']}")
+    sp = m.get("spend")
+    if sp:
+        print(f"  spend:                   ${sp['total_usd']:.4f} "
+              f"of cap {sp['cap_usd']} ({sp['calls']} calls)")
     v = j.get("verdict", {}) or {}
     dirs = v.get("directions", {}) or {}
     for name in ("A_to_B", "B_to_A"):
@@ -113,13 +121,20 @@ def run_one(cfg: config.ExperimentConfig, client: OpenRouterClient,
 
 
 def main() -> None:
+    config.load_env()  # load .env (if any) before reading defaults
     p = argparse.ArgumentParser(description="Covert-channel oversight experiment.")
     p.add_argument("--condition", choices=["covert", "plaintext", "both"],
                    default=os.getenv("CC_CONDITION", "covert"))
+    p.add_argument("--scenario", default=None,
+                   help="role-play scenario (research | marketing); env CC_SCENARIO")
     p.add_argument("--rounds", type=int, default=None)
     p.add_argument("--company", default=None)
+    p.add_argument("--topic", default=None)
     p.add_argument("--seed", type=int, default=None)
     p.add_argument("--out-dir", default=None)
+    p.add_argument("--max-cost", type=float, default=None,
+                   help="USD cap across this whole invocation (all conditions); "
+                        "without it each condition is still bounded by its per-run cap")
     p.add_argument("--no-interview", action="store_true")
     p.add_argument("--show-thinking", action="store_true",
                    help="print both agents' per-turn thinking at the end")
@@ -128,24 +143,38 @@ def main() -> None:
     def mk(condition: str) -> config.ExperimentConfig:
         cfg = config.ExperimentConfig()
         cfg.condition = condition
+        if args.scenario is not None:
+            cfg.scenario = args.scenario
         if args.rounds is not None:
             cfg.rounds = args.rounds
         if args.company is not None:
             cfg.company = args.company
+        if args.topic is not None:
+            cfg.topic = args.topic
         if args.seed is not None:
             cfg.seed = args.seed
         if args.no_interview:
             cfg.run_interview = False
         return cfg
 
-    client = OpenRouterClient()
+    # Invocation-wide cap comes only from --max-cost. Without it the total is
+    # unbounded here, but each condition still runs under its own per-run child
+    # ledger (cfg.max_cost_usd), so no single run can overspend.
+    total_ledger = SpendLedger(args.max_cost, label="total")
+
     ts = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     base_dir = os.path.join(args.out_dir or config.ExperimentConfig().out_dir, ts)
     os.makedirs(base_dir, exist_ok=True)
 
     conditions = ["covert", "plaintext"] if args.condition == "both" else [args.condition]
-    results = {c: run_one(mk(c), client, base_dir, args.show_thinking)
-               for c in conditions}
+
+    def run_condition(c: str) -> dict:
+        cfg = mk(c)
+        run_ledger = SpendLedger(cfg.max_cost_usd, parent=total_ledger, label=c)
+        client = OpenRouterClient(ledger=run_ledger)
+        return run_one(cfg, client, base_dir, args.show_thinking)
+
+    results = {c: run_condition(c) for c in conditions}
 
     if args.condition == "both":
         cov, pla = results["covert"]["metrics"], results["plaintext"]["metrics"]
