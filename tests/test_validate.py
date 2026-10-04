@@ -251,6 +251,48 @@ def _write_experiment(root: Path, config: Config) -> Path:
     return path
 
 
+def _run_record(config: Config, root: Path, *, overrides: dict[str, Any]) -> dict[str, Any]:
+    ids = compute_ids(config, root)
+    return {
+        "schema": "simmons.run/1",
+        "run_id": "20261003T141200Z-test-3f9a",
+        "experiment": config.name,
+        "author": "test",
+        "status": "complete",
+        "scratch": False,
+        "started_at": "2026-10-03T14:12:00Z",
+        "finished_at": "2026-10-03T14:19:41Z",
+        "simmons_version": "0.1.0",
+        "protocol_version": 1,
+        "purpose": config.purpose,
+        "uv_lock_sha256": "4be1c0d2",
+        "git_commit": "917d0e0",
+        "git_dirty": False,
+        "argv": ["run", f"experiments/{config.name}.json"],
+        "overrides": overrides,
+        "ids": {
+            "config": ids["config_hash"],
+            "arena": ids["arena_hash"],
+            "sender": ids["sender_id"],
+            "guard": ids["guard_id"],
+            "plan": "77f3d2c1",
+        },
+        "matrix": None,
+        "episodes_planned": config.episodes,
+        "episodes_done": config.episodes,
+        "trajectory": {"start": 0, "inherited_from": []},
+        "cap_usd": config.max_cost_usd,
+        "spent_usd": 1.0,
+    }
+
+
+def _write_run_record(run_dir: Path, record: dict[str, Any]) -> dict[str, Any]:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    path = run_dir / "run.json"
+    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def _cli(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "simmons.cli", *args],
@@ -388,7 +430,11 @@ def test_model_scorer_requires_a_judge_template(tmp_path, monkeypatch):
 def test_run_hash_is_resolved_with_recorded_overrides(tmp_path):
     config = _config_for_root(tmp_path, name="override-check", log_scope="run", episodes=20)
     overridden = config.model_copy(update={"episodes": 10, "seed": 33})
-    expected_hash = compute_ids(overridden, tmp_path)["config_hash"]
+    run_dir = tmp_path / "runs" / config.name / "run-1"
+    record = _write_run_record(
+        run_dir,
+        _run_record(overridden, tmp_path, overrides={"episodes": 10, "seed": 33}),
+    )
     report = validate_command._Experiment(
         path=tmp_path / "experiments" / "override-check.json",
         display_path="experiments/override-check.json",
@@ -398,32 +444,48 @@ def test_run_hash_is_resolved_with_recorded_overrides(tmp_path):
 
     validate_command._check_run_hash(
         report,
-        tmp_path / "runs" / config.name / "run-1",
-        {"ids": {"config_hash": expected_hash}, "overrides": {"episodes": 10, "seed": 33}},
+        run_dir,
+        record,
         tmp_path,
     )
 
     assert report.errors == []
 
 
+def test_run_hash_flags_an_experiment_edited_after_the_committed_run(tmp_path):
+    original = _config_for_root(tmp_path, name="edited-check", episodes=20)
+    run_config = original.model_copy(update={"episodes": 10, "seed": 33})
+    run_dir = tmp_path / "runs" / original.name / "run-1"
+    record = _write_run_record(
+        run_dir,
+        _run_record(run_config, tmp_path, overrides={"episodes": 10, "seed": 33}),
+    )
+    edited = original.model_copy(update={"wave_size": 2})
+    report = validate_command._Experiment(
+        path=tmp_path / "experiments" / "edited-check.json",
+        display_path="experiments/edited-check.json",
+        name=edited.name,
+        config=edited,
+    )
+
+    validate_command._check_run_hash(report, run_dir, record, tmp_path)
+
+    assert report.errors, "edited experiment must be rejected when its recorded run hash differs"
+    assert report.errors[0]["path"] == "config_hash"
+    assert "no longer resolves to committed run" in report.errors[0]["message"]
+
+
 def test_eval_seed_rejects_a_seed_used_by_a_committed_dev_run(tmp_path):
-    config = _config_for_root(tmp_path, name="eval-check", purpose="eval", seed=7)
-    dev_arena = compute_ids(config.model_copy(update={"purpose": "dev"}), tmp_path)["arena_hash"]
-    run_dir = tmp_path / "runs" / config.name / "dev-run"
-    run_dir.mkdir(parents=True)
-    (run_dir / "run.json").write_text(
-        json.dumps(
-            {
-                "purpose": "dev",
-                "overrides": {"seed": 7},
-                "ids": {"arena_hash": dev_arena},
-            }
-        ),
-        encoding="utf-8",
+    config = _config_for_root(tmp_path, name="reference-eval", purpose="eval", seed=7)
+    dev_config = config.model_copy(update={"name": "reference", "purpose": "dev"})
+    run_dir = tmp_path / "runs" / "reference" / "dev-run"
+    _write_run_record(
+        run_dir,
+        _run_record(dev_config, tmp_path, overrides={"seed": 7}),
     )
     report = validate_command._Experiment(
-        path=tmp_path / "experiments" / "eval-check.json",
-        display_path="experiments/eval-check.json",
+        path=tmp_path / "experiments" / "reference-eval.json",
+        display_path="experiments/reference-eval.json",
         name=config.name,
         config=config,
     )
@@ -431,6 +493,20 @@ def test_eval_seed_rejects_a_seed_used_by_a_committed_dev_run(tmp_path):
     validate_command._check_eval_seed(config, tmp_path, report)
 
     assert report.errors[0]["path"] == "seed"
+
+
+def test_fake_params_allowlist_tracks_provider_parameters(monkeypatch):
+    from simmons.providers import fake as fake_provider
+
+    monkeypatch.setattr(
+        fake_provider,
+        "_FAKE_ONLY_PARAMS",
+        fake_provider._FAKE_ONLY_PARAMS | {"bill_max_tokens"},
+    )
+
+    assert validate_command.model_param_issues(
+        {"bill_max_tokens": 512}, "models.default.params", model_name="fake:covert"
+    ) == []
 
 
 def test_repo_snapshot_check_compares_frozen_input_bytes(tmp_path):

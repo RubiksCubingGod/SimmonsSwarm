@@ -19,17 +19,6 @@ PROTOCOL_VERSION = 1
 DEFAULT_MODEL = "openrouter:anthropic/claude-sonnet-5.5"
 _MODEL_ROLES = ("sender", "receiver", "guard", "plain_sender", "judge")
 _MODEL_PARAMS = frozenset({"reasoning", "provider", "top_p", "seed"})
-_FAKE_PARAMS = frozenset(
-    {
-        "decode_error_rate",
-        "fail_rate",
-        "fail_schedule",
-        "latency_ms",
-        "price_in",
-        "price_out",
-        "transient_rate",
-    }
-)
 _PROVIDER_PARAMS = frozenset(
     {
         "order",
@@ -55,7 +44,14 @@ def model_param_issues(
     provider_name = None
     if model_name is not None:
         provider_name, _ = _parse_model_name(model_name, _load_aliases())
-    allowed = _FAKE_PARAMS if provider_name == "fake" else _MODEL_PARAMS
+    if provider_name == "fake":
+        # The fake adapter owns this list; import lazily to avoid registering
+        # the provider just by importing config.
+        from .providers.fake import _FAKE_ONLY_PARAMS
+
+        allowed = frozenset(_FAKE_ONLY_PARAMS)
+    else:
+        allowed = _MODEL_PARAMS
 
     issues: list[tuple[str, str]] = []
     for key in sorted(value):

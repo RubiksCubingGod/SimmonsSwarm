@@ -453,8 +453,9 @@ def _check_eval_seed(config: Config, root: Path, report: _Experiment) -> None:
     except (OSError, UnicodeError, ValueError) as exc:
         _add_from_message(report.errors, str(exc), "seed")
         return
-    for run_dir in _run_dirs(root, config.name):
-        record = _read_object(run_dir / "run.json")
+    for run_path in sorted((root / "runs").glob("*/*/run.json")):
+        run_dir = run_path.parent
+        record = _read_object(run_path)
         if record is None:
             continue
         saved_config = _read_object(run_dir / "config.json") or {}
@@ -465,7 +466,7 @@ def _check_eval_seed(config: Config, root: Path, report: _Experiment) -> None:
         if purpose != "dev":
             continue
         ids = record.get("ids")
-        saved_arena = ids.get("arena_hash") if isinstance(ids, dict) else None
+        saved_arena = ids.get("arena") if isinstance(ids, dict) else None
         if saved_arena != arena_hash:
             continue
         seed = overrides.get("seed", saved_config.get("seed"))
@@ -509,7 +510,7 @@ def _check_run_hash(report: _Experiment, run_dir: Path, record: dict[str, Any], 
     if report.config is None:
         return
     ids = record.get("ids")
-    saved_hash = ids.get("config_hash") if isinstance(ids, dict) else None
+    saved_hash = ids.get("config") if isinstance(ids, dict) else None
     if not isinstance(saved_hash, str):
         return
     overrides = record.get("overrides", {})

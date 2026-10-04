@@ -80,6 +80,8 @@ Use Python 3.11 or newer, then run `uv sync`. Copy `.env.example` to `.env` only
 
 Run `uv run pytest -q`. The default suite blocks socket connections and removes provider keys; tests marked `live` are excluded unless explicitly selected.
 
+Personal tests outside `tests/` are excluded from default collection. Run one by path with `uv run pytest -q path/to/test_file.py`.
+
 ## Write an experiment
 
 Run `uv run simmons new <name> [--from <experiment>]` to write a config with only non-default fields. `--from` accepts a name under `experiments/` or a JSON path.
