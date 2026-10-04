@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 from dataclasses import replace
 from collections.abc import Mapping
@@ -14,6 +15,7 @@ from ..config import Config
 from ..inputs import _validate_options
 from ..records import read_jsonl, read_requests_xz, request_sha256
 from ..roles import request_for
+from ..timefmt import pacific
 from ..types import EpisodeState, Inputs, ModelSpec, Pick, RoleRequest, RoleResponse, Target, ToolSpec, Usage
 
 _CALL_SLOTS = (
@@ -399,12 +401,15 @@ def _episode_page_data(
     inputs: Inputs,
     tool_roles: Mapping[str, Any],
     saved_options: list[str],
+    index_href: str | None = None,
 ) -> dict[str, Any]:
     target = episode.get("target") or {}
     protected = episode.get("protected") or ()
     return {
         "page": "episode",
         "run": {"experiment": run.get("experiment"), "run_id": run.get("run_id")},
+        "index_href": index_href,
+        "started": pacific(episode.get("started_at")),
         "episode": dict(episode),
         "options": list(plan["options"]),
         "target_index": target.get("index", plan["target"]),
@@ -418,7 +423,7 @@ def _episode_page_data(
     }
 
 
-def _load_run_data(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _load_run_data(run_dir: Path, index_href: str | None = None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     run = _read_object(run_dir / "run.json")
     raw_config = _read_object(run_dir / "config.json")
     config_fields = {name: raw_config[name] for name in Config.model_fields if name in raw_config}
@@ -479,6 +484,7 @@ def _load_run_data(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]
                 inputs,
                 tool_roles,
                 saved_options,
+                index_href,
             )
         )
 
@@ -492,6 +498,9 @@ def _load_run_data(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]
     run_page = {
         "page": "run",
         "run": run,
+        "description": raw_config.get("description"),
+        "started": pacific(run.get("started_at")),
+        "index_href": index_href,
         "config": config_data,
         "models": models,
         "summary": summary,
@@ -540,6 +549,7 @@ _STYLE = r"""
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:1180px;margin:0 auto;padding:28px 24px 64px}h1,h2,h3{line-height:1.2;margin:0 0 14px}h1{font-size:30px}h2{font-size:21px}h3{font-size:17px}.muted{color:var(--muted)}.eyebrow{color:var(--cyan);font-size:13px;letter-spacing:.08em;text-transform:uppercase}.top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:22px}.top a,.episode-link{color:var(--cyan);text-decoration:none}.top a:hover,.episode-link:hover{text-decoration:underline}.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin:14px 0}.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.meta div{min-width:0}.meta strong{display:block;color:var(--muted);font-size:13px}.cover-task summary{color:var(--cyan);cursor:pointer}.cover-task-full{margin-top:8px;color:var(--muted);font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px}.metric{background:#101722;border:1px solid var(--line);border-radius:9px;padding:12px}.metric strong{display:block;font-size:22px;font-variant-numeric:tabular-nums}.metric span,.metric small{display:block;color:var(--muted)}.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0}.toolbar label{display:flex;align-items:center;gap:8px;color:var(--muted)}select,button{font:inherit;color:var(--text);background:#111925;border:1px solid #637287;border-radius:7px;min-height:40px;padding:7px 12px}select{width:180px}button{cursor:pointer}button:hover{border-color:var(--cyan)}button[aria-selected="true"]{border-color:var(--cyan);box-shadow:inset 0 -2px var(--cyan)}table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-size:13px}td.num{text-align:right}.table-wrap{overflow-x:auto}.pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:2px 9px;white-space:nowrap}.pill.CATCH{color:var(--red)}.pill.HIT{color:var(--green)}.pill.MISS{color:var(--gold)}.pill.REFUSAL{color:var(--purple)}.curve{width:100%;height:auto;display:block}.curve text{fill:var(--muted);font:13px sans-serif}.options{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}.option{background:#101722;border:1px solid var(--line);border-radius:9px;padding:10px;min-height:54px}.option.target{outline:2px solid var(--gold);outline-offset:1px}.option.protected{background:#302d20;border-color:#a98b3e}.option.guess{box-shadow:inset 0 0 0 2px var(--purple)}.option.pick{border-color:var(--green)}.badge{display:block;font-size:12px;color:var(--muted);margin-top:3px}.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.panel{background:#101722;border:1px solid var(--line);border-radius:9px;padding:14px;min-width:0}.bar{height:10px;background:#263346;border-radius:8px;overflow:hidden;margin:10px 0}.bar span{display:block;height:100%;background:var(--cyan)}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0a0f17;border:1px solid #283445;border-radius:7px;padding:12px;color:var(--text);font:14px/1.5 ui-monospace,SFMono-Regular,monospace;max-height:460px;overflow:auto}.tabs{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}.status{padding:3px 8px;border-radius:999px;font-weight:650;font-size:13px}.status.good{background:#173d31;color:#b4f4c8}.status.bad{background:#512c31;color:#ffd0d0}.status.unknown{background:#3e3825;color:#ffe3a0}.status.not-called{background:#253142;color:#c9d4df}.status.refused{background:#3a2a52;color:#e2d2ff}.split{display:grid;grid-template-columns:1fr 1fr;gap:14px}.content-block{overflow-wrap:anywhere}.small{font-size:13px}@media(max-width:650px){main{padding:20px 14px 40px}.top{display:block}.split{grid-template-columns:1fr}h1{font-size:25px}}
 """
 
+_STYLE += "\n.nav{display:flex;gap:18px;align-items:center;white-space:nowrap}.nav a{color:var(--cyan);text-decoration:none}.nav a:hover{text-decoration:underline}.lede{color:var(--text);margin:-6px 0 6px;max-width:780px}"
 _STYLE += "\n.bar{position:relative;overflow:visible}.bar span{border-radius:8px}.bar i{position:absolute;top:-3px;height:16px;width:2px;background:var(--gold);transform:translateX(-1px)}"
 _STYLE += (
     "\n.option-card>summary{cursor:pointer}.option-card>summary strong{font-size:17px;margin-right:12px}"
@@ -571,13 +581,13 @@ const show=(v)=>v===null||v===undefined||v===""?"—":String(v);
 const pct=(v)=>v===null||v===undefined?"—":`${(Number(v)*100).toFixed(1)}%`;
 const money=(v)=>v===null||v===undefined?"—":`$${Number(v).toFixed(2)}`;
 const pre=(parent,label,value)=>{add(parent,"h3",label);add(parent,"pre",value??"(empty)")};
-function header(title,subtitle,back){
- const top=add(root,"header","","top");const left=add(top,"div");add(left,"div","SIMMONS SWARM","eyebrow");add(left,"h1",title);add(left,"div",subtitle,"muted");if(back){const a=add(top,"a","Back to run");a.href="index.html";}
+function header(title,subtitle,back,detail){
+ const top=add(root,"header","","top");const left=add(top,"div");add(left,"div","SIMMONS SWARM","eyebrow");add(left,"h1",title);if(detail)add(left,"div",detail,"lede");add(left,"div",subtitle,"muted");const nav=add(top,"nav","","nav");if(back){const a=add(nav,"a","Back to run");a.href="index.html";}if(data.index_href){const a=add(nav,"a","All runs");a.href=data.index_href;}
 }
 function metric(parent,label,rate){const box=add(parent,"div","","metric");add(box,"span",label);add(box,"strong",pct(rate?.value));add(box,"small",rate?`${rate.num} / ${rate.den}${rate.lo==null||rate.hi==null?"":` · 95% ${pct(rate.lo)}–${pct(rate.hi)}`}`:"Not available")}
 function runPage(){
  const r=data.run,s=data.summary,c=data.config,episodes=data.episodes||[];
- header(`${show(r.experiment)} · run`,`${show(r.run_id)} · ${show(r.status)}`);
+ header(`${show(r.experiment)} · run`,`${data.started?`${data.started} · `:""}${show(r.status)} · ${show(r.run_id)}`,false,data.description);
  const meta=add(root,"section","","card meta");
  const modelLabel=(value)=>value&&typeof value==="object"?(value.provider&&value.model?`${value.provider}:${value.model}`:value.configured?`${value.configured} (configured; no call recorded)`:"—"):"—";
  const modelRows=Object.entries({sender:"Sender model",receiver:"Receiver model",guard:"Guard model",plain_sender:"Plain sender model",judge:"Judge model"}).map(([role,label])=>[label,data.models?.[role]]);
@@ -646,7 +656,7 @@ function storyCard(e){
  else add(d,"p","Not recorded.","muted");
 }
 function episodePage(){
- const e=data.episode,r=data.run;header(`Episode ${Number(e.index)}`,`${show(e.kind)} · ${show(e.outcome)} · run ${show(r.run_id)}`,true);
+ const e=data.episode,r=data.run;header(`Episode ${Number(e.index)}`,`${show(e.kind)} · ${show(e.outcome)}${data.started?` · ${data.started}`:""} · run ${show(r.run_id)}`,true);
  const summaryParts=[`${data.options.length} options`,`target ${show(data.options[data.target_index])}`];if(data.protected_indices.length)summaryParts.push(`${data.protected_indices.length} protected${data.protected_indices.includes(data.target_index)?" (target protected)":""}`);summaryParts.push(e.guard?`guard guessed ${show(e.guard.guess?.value)}${e.guard.guess?.index===data.target_index?" ✓":""}`:"guard: not called");summaryParts.push(e.calls?.receiver?`receiver picked ${show(e.pick?.value)}${e.pick?.index===data.target_index?" ✓":""}`:"receiver: not called");
 
  storyCard(e);
@@ -694,8 +704,12 @@ def generate(run_dir: str | Path, output_dir: str | Path | None = None) -> tuple
     Pages go to ``<run_dir>/view`` unless ``output_dir`` names another directory.
     """
     root = Path(run_dir).resolve()
-    run_page, episode_pages = _load_run_data(root)
     output = Path(output_dir) if output_dir is not None else root / "view"
+    # Local views link back to the all-runs page; a copy written elsewhere
+    # (simmons publish) has no such page beside it.
+    index = all_runs_index(root) if output_dir is None else None
+    index_href = Path(os.path.relpath(index, output.resolve())).as_posix() if index is not None else None
+    run_page, episode_pages = _load_run_data(root, index_href)
     output.mkdir(parents=True, exist_ok=True)
     index_path = output / "index.html"
     index_path.write_text(render_run_page(run_page), encoding="utf-8")
@@ -712,4 +726,12 @@ def generate(run_dir: str | Path, output_dir: str | Path | None = None) -> tuple
     return index_path, paths
 
 
-__all__ = ["generate", "render_episode_page", "render_run_page"]
+def all_runs_index(run_dir: str | Path) -> Path | None:
+    """Return runs-local/index.html for a run stored as <root>/<runs|runs-local>/<experiment>/<id>."""
+    path = Path(run_dir).resolve()
+    if path.parent.parent.name not in {"runs", "runs-local"}:
+        return None
+    return path.parent.parent.parent / "runs-local" / "index.html"
+
+
+__all__ = ["all_runs_index", "generate", "render_episode_page", "render_run_page"]

@@ -91,3 +91,41 @@ def test_prompt_text_is_embedded_as_text_not_markup(tmp_path: Path, monkeypatch)
     assert HOSTILE not in page
     assert HOSTILE.replace("<", "\\u003c").replace(">", "\\u003e") in page
     assert "http://" not in page and "https://" not in page
+
+
+def test_index_rows_carry_descriptions_and_pacific_times(tmp_path: Path, monkeypatch) -> None:
+    root = _stage(tmp_path)
+    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(root))
+    assert _run(_args()) == 0
+
+    data = _page_data(root / "runs-local" / "index.html")
+    descriptions = {
+        json.loads(path.read_text(encoding="utf-8"))["run_id"]: json.loads(
+            (path.parent / "config.json").read_text(encoding="utf-8")
+        ).get("description")
+        for path in root.rglob("run.json")
+    }
+    for run in data["runs"]:
+        assert run["description"] == descriptions[run["run_id"]]
+        assert run["started"].endswith(("PDT", "PST")) and " at " in run["started"]
+    assert data["generated"].endswith(("PDT", "PST"))
+
+
+def test_run_and_episode_pages_link_back_to_all_runs(tmp_path: Path, monkeypatch) -> None:
+    from simmons.viewer import all_runs_index, generate
+
+    root = _stage(tmp_path)
+    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(root))
+    assert _run(_args()) == 0
+    run_dir = root / "runs" / "base" / "sender-a__guard-a"
+    index_page = run_dir / "view" / "index.html"
+
+    for page in (index_page, run_dir / "view" / "episode-000000.html"):
+        href = _page_data(page)["index_href"]
+        assert (page.parent / href).resolve() == (root / "runs-local" / "index.html").resolve()
+    assert all_runs_index(run_dir) == (root / "runs-local" / "index.html").resolve()
+
+    published = tmp_path / "published"
+    generate(run_dir, output_dir=published)
+    assert _page_data(published / "index.html")["index_href"] is None
+    assert all_runs_index(tmp_path / "loose-run") is None

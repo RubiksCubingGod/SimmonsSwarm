@@ -14,6 +14,7 @@ from typing import Any
 from ..commands.ls import _row
 from ..dataset import _uses_fake
 from ..runner import _forked_run_ids, _iter_run_metadata, _RunMetadata
+from ..timefmt import pacific
 from . import _STYLE, _recorded_models, _safe_json, generate
 
 _PROMPT_SLOTS = (
@@ -45,11 +46,11 @@ def _read_summary(run_dir: Path) -> dict[str, Any]:
 
 
 def _ensure_view(item: _RunMetadata, status: str) -> tuple[Path | None, str | None]:
-    """Return the run's view page, generating it when missing."""
+    """Return the run's view page, regenerated so every run uses the current viewer."""
     view = item.path / "view" / "index.html"
-    if view.is_file():
-        return view, None
     if status == "running":
+        if view.is_file():
+            return view, None
         return None, "Run in progress; view not generated yet."
     try:
         index, _ = generate(item.path)
@@ -129,6 +130,8 @@ def _index_data(
                 "experiment": row["experiment"],
                 "run_id": row["run_id"],
                 "started_at": item.run.get("started_at"),
+                "started": pacific(item.run.get("started_at")),
+                "description": item.config.get("description") if isinstance(item.config.get("description"), str) else None,
                 "author": row["author"],
                 "status": row["status"],
                 "fake": _is_fake(item),
@@ -163,7 +166,8 @@ def _index_data(
         )
     return {
         "page": "runs",
-        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": (generated := datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")),
+        "generated": pacific(generated),
         "roots": [root.name for root in resolved_roots],
         "slots": [{"key": slot, "label": label} for slot, _role, label in _PROMPT_SLOTS],
         "prompts": prompt_table,
@@ -172,6 +176,7 @@ def _index_data(
 
 
 _INDEX_STYLE = (
+    ".desc{color:var(--muted);font-size:13px;line-height:1.4;margin:2px 0 4px;max-width:320px}"
     "main{max-width:1440px}.models div,.chip,.tag{white-space:nowrap}.run-cell a{font-size:14px;white-space:nowrap}"
     ".run-cell strong{display:block}.run-cell a{color:var(--cyan);text-decoration:none;overflow-wrap:anywhere}"
     ".run-cell a:hover{text-decoration:underline}.models{font-size:13px;color:var(--muted);line-height:1.45}"
@@ -201,7 +206,7 @@ const hue=(h)=>parseInt(String(h).slice(0,6),16)%360;
 const tint=(node,h)=>{node.style.color=`hsl(${hue(h)} 75% 74%)`;node.style.borderColor=`hsl(${hue(h)} 45% 42%)`};
 const slotLabel=Object.fromEntries(data.slots.map(s=>[s.key,s.label]));
 const runs=data.runs||[];
-const pageHead=add(root,"header","","top");const left=add(pageHead,"div");add(left,"div","SIMMONS SWARM","eyebrow");add(left,"h1","All runs");add(left,"div",`${runs.length} runs · ${data.roots.map(r=>`${r}/`).join(" and ")} · generated ${data.generated_at}`,"muted");
+const pageHead=add(root,"header","","top");const left=add(pageHead,"div");add(left,"div","SIMMONS SWARM","eyebrow");add(left,"h1","All runs");add(left,"div",`${runs.length} runs · ${data.roots.map(r=>`${r}/`).join(" and ")} · updated ${data.generated??data.generated_at}`,"muted");
 const promptCard=add(root,"section","","card prompt-list");add(promptCard,"h2","Prompts in use");add(promptCard,"p","Each distinct prompt text, by slot. The same hash means the same text, whatever the file was called.","muted small");const groups=add(promptCard,"div","","prompt-groups");
 const promptHint={p1:"P₁ · shared by sender and receiver",p2:"P₂ · guard",plain:"Plain sender"};
 for(const slot of data.slots){const group=add(groups,"div");add(group,"h3",promptHint[slot.key]||slot.label);const entries=Object.entries(data.prompts).filter(([,p])=>p.slots.includes(slot.key)).sort((a,b)=>b[1].runs-a[1].runs);if(!entries.length)add(group,"p","No snapshot found.","muted small");for(const [h,p] of entries){const d=add(group,"details");const s=add(d,"summary");const code=add(s,"code",short(h));tint(code,h);add(s,"span",` ${p.names.join(", ")} · ${p.runs} run${p.runs===1?"":"s"}`);add(d,"pre",p.text||"(empty)");}}
@@ -217,7 +222,7 @@ function update(){
  const rows=runs.filter(r=>(exp.value==="all"||r.experiment===exp.value)&&(!pslot||r.prompts[pslot]?.hash===phash));
  body.replaceChildren();
  for(const r of rows){
-  const row=add(body,"tr");const run=add(row,"td","","run-cell");add(run,"strong",r.experiment);if(r.href){const a=add(run,"a",r.run_id);a.href=r.href;}else add(run,"span",r.run_id);add(run,"small",`${show(r.started_at).replace("T"," ").replace(/\.\d+Z$/,"Z")} · ${r.author}`);if(r.view_error)add(run,"small",r.view_error);
+  const row=add(body,"tr");const run=add(row,"td","","run-cell");add(run,"strong",r.experiment);if(r.description)add(run,"div",r.description,"desc");if(r.href){const a=add(run,"a",r.run_id);a.href=r.href;}else add(run,"span",r.run_id);add(run,"small",`${r.started??show(r.started_at)} · ${r.author}`);if(r.view_error)add(run,"small",r.view_error);
   const status=add(row,"td");add(status,"div",r.status);add(status,"span",r.fake?"fake":"real",`tag ${r.fake?"fake":"real"}`);if(r.root)add(status,"span",`${r.root}/`,"tag");if(r.forked)add(status,"span","fork","tag");if(r.refusals)add(status,"span",`${r.refusals} refused`,"tag refused");add(status,"small",`${show(r.episodes_done)} / ${show(r.episodes_planned)} episodes`);
   const models=add(row,"td","","models");for(const [role,label] of [["sender","S"],["receiver","R"],["guard","G"],["plain_sender","Plain"]]){const line=add(models,"div");add(line,"b",`${label} `);line.append(show(r.models?.[role]));}
   rateCell(row,r.rates.hit);rateCell(row,r.rates.catch);rateCell(row,r.rates.false_alarm);add(row,"td",pct(r.decode_gap),"num");add(row,"td",money(r.spent_usd),"num");
