@@ -9,6 +9,7 @@ from decimal import Decimal
 from threading import Barrier
 
 import pytest
+from pydantic import ValidationError
 
 from simmons import records, spend
 from simmons.config import Config, ModelSpecConfig
@@ -314,8 +315,8 @@ def test_preflight_checks_run_ceiling_estimate_and_remaining_credit():
         spend.check_before_run(config, 0.051)
     with pytest.raises(spend.BreakerTripped, match="remaining credit"):
         spend.check_before_run(config, 0.02, remaining_usd=0.01)
-    with pytest.raises(spend.BreakerTripped, match="no more than 20.00"):
-        spend.check_before_run(_priced_config(cap=25), 0.01)
+    with pytest.raises(ValidationError, match="max_cost_usd"):
+        _priced_config(cap=25)
 
 
 def test_run_cap_refuses_raised_override_and_returns_lowered_cap():
