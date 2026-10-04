@@ -328,7 +328,22 @@ class OpenRouterProvider:
         messages: list[dict[str, Any]] = []
         if request.system:
             messages.append({"role": "system", "content": request.system})
+        messages.append(
+            {
+                "role": "user",
+                "content": _parts_text(request.user, purpose="user message"),
+            }
+        )
         if request.prior is not None:
+            prior_calls = request.prior.assistant.get("tool_calls")
+            if not isinstance(prior_calls, list) or not any(
+                isinstance(call, Mapping)
+                and call.get("id") == request.prior.tool_call_id
+                and isinstance(call.get("function"), Mapping)
+                and call["function"].get("name") == request.prior.tool.name
+                for call in prior_calls
+            ):
+                raise PermanentError("prior tool_call_id does not match the assistant message")
             # Keep this map and every opaque value in it unchanged. In
             # particular, Anthropic reasoning_details must survive the replay.
             messages.append(dict(request.prior.assistant))
@@ -339,12 +354,6 @@ class OpenRouterProvider:
                     "content": _parts_text(request.prior.tool_result, purpose="tool result"),
                 }
             )
-        messages.append(
-            {
-                "role": "user",
-                "content": _parts_text(request.user, purpose="user message"),
-            }
-        )
         body["messages"] = messages
 
         tools: list[dict[str, Any]] = []

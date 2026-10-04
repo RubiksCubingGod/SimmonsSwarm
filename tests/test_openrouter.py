@@ -196,10 +196,11 @@ def test_claude_recorded_response_and_body_contract():
 
 def test_claude_debrief_replays_assistant_message_reasoning_and_both_tools():
     send_message = _recorded("claude-thinking-send.json")["choices"][0]["message"]
+    send_tool_call_id = send_message["tool_calls"][0]["id"]
     prior = PriorTurn(
         tool=_tool("send_message", "Write the cover message"),
         assistant=send_message,
-        tool_call_id="toolu_recorded_send",
+        tool_call_id=send_tool_call_id,
         tool_result=(TextPart("How did the message carry its target?"),),
     )
     captured: list[httpx2.Request] = []
@@ -214,12 +215,17 @@ def test_claude_debrief_replays_assistant_message_reasoning_and_both_tools():
         response = provider.complete(request)
         sent = json.loads(captured[0].content)
 
-        assert sent["messages"][1] == send_message
-        assert sent["messages"][2] == {
-            "role": "tool",
-            "tool_call_id": "toolu_recorded_send",
-            "content": "How did the message carry its target?",
-        }
+        assert sent["messages"] == [
+            {"role": "system", "content": "system prompt"},
+            {"role": "user", "content": "current user prompt"},
+            send_message,
+            {
+                "role": "tool",
+                "tool_call_id": send_tool_call_id,
+                "content": "How did the message carry its target?",
+            },
+        ]
+        assert sent["messages"][2]["tool_calls"][0]["id"] == sent["messages"][3]["tool_call_id"]
         assert [tool["function"]["name"] for tool in sent["tools"]] == ["send_message", "explain_message"]
         fixture = _recorded("claude-thinking-debrief.json")
         message = fixture["choices"][0]["message"]
@@ -228,7 +234,23 @@ def test_claude_debrief_replays_assistant_message_reasoning_and_both_tools():
         assert response.tool_input is None
         assert response.cost_usd is None
         assert response.generation_id == fixture["id"]
-        assert sent["messages"][1]["reasoning_details"] == send_message["reasoning_details"]
+        assert sent["messages"][2]["reasoning_details"] == send_message["reasoning_details"]
+    finally:
+        http_client.close()
+
+
+def test_debrief_rejects_tool_call_id_not_present_in_assistant_message():
+    send_message = _recorded("claude-thinking-send.json")["choices"][0]["message"]
+    prior = PriorTurn(
+        tool=_tool("send_message"),
+        assistant=send_message,
+        tool_call_id="not-the-recorded-call-id",
+        tool_result=(TextPart("interview"),),
+    )
+    provider, http_client = _provider(CLAUDE, CLAUDE_PARAMS)
+    try:
+        with pytest.raises(PermanentError, match="tool_call_id.*assistant message"):
+            provider.build_body(_request(CLAUDE, temperature=None, prior=prior))
     finally:
         http_client.close()
 
