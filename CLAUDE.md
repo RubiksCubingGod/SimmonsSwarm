@@ -99,6 +99,10 @@ Use `uv run simmons ls [--experiment NAME] [--matrix NAME] [--runs-dir DIR] [--j
 
 For people, `uv run simmons view <run-dir> [--open]` writes local HTML with summary rates, the curve and a filterable episode table. Archived requests are hash-checked; pages work from `file://` without a server. `uv run simmons view --all [--open]` writes `runs-local/index.html`: every run under `runs/` and `runs-local/`, newest first, with models, rates, spend and P₁/P₂/plain prompts by name and content hash; it generates missing run views.
 
+## Share runs
+
+`uv run simmons publish [<run-dir>...]` renders committed runs plus listed scratch runs and deploys them to an unlisted URL, printed at the end (`https://simmons.stage11.dev/<path>/`). It needs `SIMMONS_CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in `.env`; publish from one machine. See `docs/hosted-viewer.md`.
+
 ## Interfaces
 
 - T01 freezes `simmons/types.py`, config, `records.py`, registries, `cli.py` and seam signatures. Additive fields/helpers are allowed; breaking changes need an Orchestrator decision.

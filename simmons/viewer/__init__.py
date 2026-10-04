@@ -632,11 +632,14 @@ def render_episode_page(data: Mapping[str, Any]) -> str:
     return _document(data)
 
 
-def generate(run_dir: str | Path) -> tuple[Path, list[Path]]:
-    """Write the run index and one local page for every recorded episode."""
+def generate(run_dir: str | Path, output_dir: str | Path | None = None) -> tuple[Path, list[Path]]:
+    """Write the run index and one local page for every recorded episode.
+
+    Pages go to ``<run_dir>/view`` unless ``output_dir`` names another directory.
+    """
     root = Path(run_dir).resolve()
     run_page, episode_pages = _load_run_data(root)
-    output = root / "view"
+    output = Path(output_dir) if output_dir is not None else root / "view"
     output.mkdir(parents=True, exist_ok=True)
     index_path = output / "index.html"
     index_path.write_text(render_run_page(run_page), encoding="utf-8")
