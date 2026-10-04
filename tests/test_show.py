@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import lzma
 import re
+import shutil
 from pathlib import Path
 
 from simmons.cli import main
+from simmons.records import read_requests_xz
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "runs"
 BASE_RUN = FIXTURES / "base" / "sender-a__guard-a"
@@ -93,3 +96,63 @@ def test_show_watchlist_episode_displays_protected_options(capsys):
     assert "Episode 0" in stdout
     assert "Protected:" in stdout
     assert "none" not in stdout.split("Protected:", 1)[1].splitlines()[0]
+
+
+def test_show_rejects_unknown_metadata_major_versions(capsys, tmp_path):
+    for record_name in ("run", "summary"):
+        run_dir = tmp_path / record_name
+        shutil.copytree(BASE_RUN, run_dir)
+        record_path = run_dir / f"{record_name}.json"
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        record["schema"] = f"simmons.{record_name}/999"
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+
+        code, _, stderr = _invoke(capsys, run_dir, "--json")
+
+        assert code == 2
+        assert f"unsupported record schema: simmons.{record_name}/999" in stderr
+
+
+def test_show_request_hash_mismatch_is_invalid_input(capsys, tmp_path):
+    run_dir = tmp_path / "run"
+    shutil.copytree(BASE_RUN, run_dir)
+    episodes = [
+        json.loads(line)
+        for line in (run_dir / "episodes.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    episode = next(row for row in episodes if row["index"] == 3)
+    digest = episode["calls"]["guard"]["request_sha256"]
+    request_path = run_dir / "requests.jsonl.xz"
+    requests = read_requests_xz(request_path)
+    for request in requests:
+        if request["request_sha256"] == digest:
+            request["system"] += "\nTampered after the run was recorded."
+            break
+    else:
+        raise AssertionError(f"request {digest} was not found")
+    with lzma.open(request_path, mode="wt", encoding="utf-8") as stream:
+        for request in requests:
+            stream.write(json.dumps(request, ensure_ascii=False) + "\n")
+
+    code, stdout, stderr = _invoke(
+        capsys, run_dir, "--episode", "3", "--role", "guard", "--prompt"
+    )
+
+    assert code == 2
+    assert stderr == ""
+    assert stdout.rstrip().endswith("sha256 mismatch")
+
+    code, stdout, stderr = _invoke(
+        capsys,
+        run_dir,
+        "--episode",
+        "3",
+        "--role",
+        "guard",
+        "--prompt",
+        "--json",
+    )
+
+    assert code == 2
+    assert stderr == ""
+    assert json.loads(stdout)["request"]["sha256_matches"] is False

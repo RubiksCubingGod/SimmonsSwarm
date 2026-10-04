@@ -12,7 +12,7 @@ from typing import Any
 
 from jsonschema import ValidationError
 
-from ..records import read_jsonl, read_requests_xz, request_sha256
+from ..records import read_jsonl, read_requests_xz, request_sha256, validate_record
 
 _ROLES = ("sender", "guard", "receiver", "sender_debrief")
 _OUTCOME_ORDER = ("CATCH", "MISS", "HIT", "ERROR")
@@ -49,7 +49,7 @@ def _run(args: argparse.Namespace) -> int:
         summary_path = run_dir / "summary.json"
         try:
             summary = _read_object(summary_path) if summary_path.is_file() else None
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, ValidationError) as exc:
             print(f"show: {exc}", file=sys.stderr)
             return 2
         if args.json:
@@ -87,7 +87,7 @@ def _run(args: argparse.Namespace) -> int:
             print(f"Episode {args.episode} · {args.role} request")
             print(json.dumps(request, ensure_ascii=False, indent=2))
             print("sha256 matches" if matches else "sha256 mismatch")
-        return 0 if matches else 1
+        return 0 if matches else 2
 
     if args.json:
         _print_json(output)
@@ -117,6 +117,7 @@ def _read_object(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError(f"expected a JSON object in {path}")
+    validate_record(value)
     return value
 
 
