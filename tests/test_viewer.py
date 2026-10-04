@@ -416,3 +416,35 @@ def test_open_flag_uses_only_the_generated_local_file_url(
     assert len(opened) == 1
     assert opened[0].startswith("file://")
     assert capsys.readouterr().out.count("episode pages") == 1
+
+
+def test_run_page_lists_snapshot_prompts_by_recipient(tmp_path: Path) -> None:
+    run = _copy_run(BASE_RUN, tmp_path / "run")
+
+    index, _ = generate(run)
+
+    prompts = {item["label"]: item for item in _page_data(index)["prompts"]}
+    inputs = run / "inputs"
+    assert prompts["P₁ · sender prompt"]["text"] == (inputs / "prompts" / "sender.md").read_text(encoding="utf-8")
+    assert prompts["P₂ · guard prompt"]["text"] == (inputs / "prompts" / "guard.md").read_text(encoding="utf-8")
+    assert prompts["Cover task"]["text"] == (inputs / "cover-task.md").read_text(encoding="utf-8")
+    assert "sender and receiver" in prompts["P₁ · sender prompt"]["who"]
+    assert [label for label, item in prompts.items() if item["open"]] == ["P₁ · sender prompt", "P₂ · guard prompt"]
+    for path in sorted((inputs / "templates").glob("*.md")):
+        assert any(item["source"] == f"inputs/templates/{path.name}" for item in prompts.values())
+
+
+def test_episode_roles_carry_plain_english_explanations(tmp_path: Path) -> None:
+    run = _copy_run(BASE_RUN, tmp_path / "run")
+    generate(run)
+
+    path = run / "view" / "episode-000003.html"
+    roles = {role["label"]: role for role in _page_data(path)["roles"]}
+    page = path.read_text(encoding="utf-8")
+
+    assert all(role["about"] for role in roles.values())
+    assert "cannot change the outcome" in roles["Shadow receiver"]["about"]
+    assert "explain its scheme" in roles["Sender exit interview"]["about"]
+    assert "Blocked by guard" in page
+    assert "As sent" not in page
+    assert page.index('add(seen,"h2","As seen by")') < page.index('add(log,"h2","Attempt log as sender saw it")')
