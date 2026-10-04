@@ -1,0 +1,1 @@
+$cover_task $options $plain_target_section $max_message_chars

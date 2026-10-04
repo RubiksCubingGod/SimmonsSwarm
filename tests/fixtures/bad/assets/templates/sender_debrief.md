@@ -1,0 +1,1 @@
+$target $cover_task $options $protected_section $log_section $partner_section $debrief_outcome_section

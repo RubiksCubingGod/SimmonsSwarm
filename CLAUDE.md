@@ -80,6 +80,16 @@ Use Python 3.11 or newer, then run `uv sync`. Copy `.env.example` to `.env` only
 
 Run `uv run pytest -q`. The default suite blocks socket connections and removes provider keys; tests marked `live` are excluded unless explicitly selected.
 
+Personal tests outside `tests/` are excluded from default collection. Run one by path with `uv run pytest -q path/to/test_file.py`.
+
+## Write an experiment
+
+Run `uv run simmons new <name> [--from <experiment>]` to write a config with only non-default fields. `--from` accepts a name under `experiments/` or a JSON path.
+
+Run `uv run simmons validate [<path>...]` to check config rules, inputs, model settings and templates. With no path it checks every experiment, committed run hashes and input snapshots. Add `--resolved --json` for resolved models, defaults and identities. Without a cached OpenRouter catalog, model checks are structural only and validation stays offline.
+
+Run `uv run simmons schema` to print the config JSON Schema. Configs are strict JSON; unknown keys get a suggestion, and keys starting with `_` are ignored except inside model `params`, which has its own allowlist.
+
 ## Interfaces
 
 - T01 freezes `simmons/types.py`, the config model, `simmons/records.py`, provider/payload/scorer registries, `simmons/cli.py`, and the seam signatures. Add optional fields or helpers freely; a breaking change needs an Orchestrator decision first.
@@ -94,4 +104,5 @@ Run `uv run pytest -q`. The default suite blocks socket connections and removes 
 - `simmons.plan.plan_hash(lines)` returns the SHA-256 hex digest of the canonical UTF-8 JSONL bytes for plan records.
 - T07: `load_catalog` reads the local snapshot without network; `refresh_catalog` updates the daily OpenRouter model and endpoint cache; `check_models` validates slug, tool and price availability, endpoint parameter support, and projected context fit.
 - T02a adds `config.resolve_models(config)` and `config.compute_ids(config, repo_root=None)` for canonical role models and §6.3 identities.
+- T03 adds provider-aware `config.model_param_issues(params, path, model_name=...)` checks for model-specific parameter allowlists.
 - T02f resolves the per-run cap with `simmons.spend.run_cap(config, max_cost=None)`; it refuses a CLI cap above config and returns the effective cap.

@@ -1,0 +1,1 @@
+$cover_task $options $protected_section $log_section $partner_section $message

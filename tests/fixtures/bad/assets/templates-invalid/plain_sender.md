@@ -1,0 +1,1 @@
+plain_sender fixture.
