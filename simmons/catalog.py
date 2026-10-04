@@ -129,14 +129,31 @@ def _model_info(record: JsonObject) -> ModelInfo:
             continue
         endpoint_prices.append((host, input_price, output_price))
 
+    # Per endpoint, the supported tool_choice values ride along as
+    # "tool_choice=<value>" markers, so routing can tell an endpoint that can
+    # force one named tool from one that only allows "auto".
+    endpoint_markers = [
+        _tool_choice_markers(endpoint) for endpoint in endpoints if isinstance(endpoint, Mapping)
+    ]
     return ModelInfo(
         slug=slug,
         context_length=int(context_length),
         supports_tools="tools" in supported_parameters,
         endpoint_prices=tuple(endpoint_prices),
         supported_parameters=supported_parameters,
-        endpoint_parameters=tuple((host, parameters) for host, parameters in endpoint_parameters if host),
+        endpoint_parameters=tuple(
+            (host, parameters | markers)
+            for (host, parameters), markers in zip(endpoint_parameters, endpoint_markers)
+            if host
+        ),
     )
+
+
+def _tool_choice_markers(endpoint: JsonObject) -> frozenset[str]:
+    choices = endpoint.get("supports_tool_choice")
+    if not isinstance(choices, Mapping):
+        return frozenset()
+    return frozenset(f"tool_choice={name}" for name, allowed in choices.items() if allowed is True)
 
 
 def _endpoint_host(endpoint: JsonObject) -> str:
