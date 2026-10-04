@@ -16,6 +16,7 @@ from simmons.plan import build_plan
 from simmons.payloads.option import OptionPayload
 from simmons.providers.fake import FakeProvider
 from simmons.records import canonical_json, read_jsonl, read_requests_xz
+from simmons.runner import run as run_config
 from simmons.runner import run_experiment
 from simmons.scorers.exact_match import ExactMatchScorer
 from simmons.types import EpisodeContext, PermanentError
@@ -146,6 +147,15 @@ def test_cli_override_cap_and_dry_run_validation():
     assert dry_run["run_dir"] is None
     with pytest.raises(Exception, match="RUN_CEILING_USD"):
         Config.model_validate({"name": "over-cap", "max_cost_usd": 25})
+
+
+def test_frozen_runner_run_seam_accepts_config_and_returns_cli_shape():
+    config = Config.model_validate(json.loads((ROOT / SMOKE).read_text()))
+    result = run_config(config, fake=True, scratch=True, episodes=1, json_output=True)
+    assert result["status"] == "complete"
+    assert result["exit_code"] == 0
+    assert result["summary"]["status"] == "complete"
+    assert result["summary"] == json.loads((Path(result["run_dir"]) / "summary.json").read_text())
 
 
 def test_failed_debrief_does_not_change_the_game_outcome():

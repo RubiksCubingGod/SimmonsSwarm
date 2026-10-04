@@ -135,6 +135,9 @@ def test_frozen_seams_are_importable_with_declared_signatures():
             "request_for": ("role", "state", "config", "inputs", "model"),
         },
         "simmons.episode": {"run_episode": ("line", "ctx")},
+        "simmons.runner": {
+            "run": ("config", "fake", "scratch", "episodes", "seed", "max_cost", "json_output")
+        },
         "simmons.catalog": {"load_catalog": ("path",)},
         "simmons.metrics": {"summarize": ("episodes",)},
         "simmons.spend": {

@@ -288,7 +288,7 @@ def _preflight(ctx: EpisodeContext, plan: list[dict[str, Any]]) -> dict[str, Any
 
 
 def run_experiment(
-    experiment_path: str | Path,
+    experiment_path: str | Path | Config,
     *,
     repo_root: str | Path | None = None,
     fake: bool = False,
@@ -302,11 +302,14 @@ def run_experiment(
     """Run one M1 experiment. Return CLI exit status and a JSON-ready result."""
     root = Path(repo_root) if repo_root is not None else Path(__file__).resolve().parent.parent
     root = root.resolve()
-    config_source = Path(experiment_path)
-    if not config_source.is_absolute():
-        config_source = root / config_source
     try:
-        raw_config = json.loads(config_source.read_text(encoding="utf-8"))
+        if isinstance(experiment_path, Config):
+            raw_config = experiment_path.model_dump(mode="json")
+        else:
+            config_source = Path(experiment_path)
+            if not config_source.is_absolute():
+                config_source = root / config_source
+            raw_config = json.loads(config_source.read_text(encoding="utf-8"))
         config, overrides = _resolve_config(
             raw_config, fake=fake, episodes=episodes, seed=seed, max_cost=max_cost
         )
@@ -348,11 +351,11 @@ def run_experiment(
         estimate_usd = estimate(config, plan, inputs=inputs, catalog=catalog)
         check_before_run(config, estimate_usd)
     except _ProviderUnavailable as exc:
-        return 4, {"status": "failed", "error": str(exc)}
+        return 4, _with_cli_fields(4, {"status": "failed", "error": str(exc)})
     except BreakerTripped as exc:
-        return 3, {"status": "refused", "error": str(exc)}
+        return 3, _with_cli_fields(3, {"status": "refused", "error": str(exc)})
     except Exception as exc:
-        return 2, {"status": "invalid", "error": str(exc)}
+        return 2, _with_cli_fields(2, {"status": "invalid", "error": str(exc)})
 
     kinds = Counter(line["kind"] for line in plan)
     if dry_run:
@@ -361,14 +364,14 @@ def run_experiment(
             check_before_run(config, estimate_usd)
         except BreakerTripped:
             status = 3
-        return status, {
+        return status, _with_cli_fields(status, {
             "status": "dry_run",
             "experiment": config.name,
             "episodes": len(plan),
             "kinds": dict(sorted(kinds.items())),
             "estimate_usd": estimate_usd,
             "run_dir": None,
-        }
+        })
 
     run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{_author()}-{uuid.uuid4().hex[:4]}"
     runs_root = _base_runs_root(root, local)
@@ -382,7 +385,14 @@ def run_experiment(
             stream.flush()
             os.fsync(stream.fileno())
     except FileExistsError:
-        return 4, {"status": "failed", "error": f"run lock already exists: {lock_path}", "run_dir": str(run_dir)}
+        return 4, _with_cli_fields(
+            4,
+            {
+                "status": "failed",
+                "error": f"run lock already exists: {lock_path}",
+                "run_dir": str(run_dir),
+            },
+        )
 
     created_at = _now()
     run_record: dict[str, Any] = {
@@ -533,6 +543,7 @@ def run_experiment(
                         break
                     if interrupted:
                         status = "interrupted"
+                        exit_code = 5
                         break
                 if interrupted:
                     break
@@ -555,7 +566,7 @@ def run_experiment(
         except _StopRun:
             pass
     except KeyboardInterrupt:
-        status = "interrupted"
+        status, exit_code = "interrupted", 5
     except BreakerTripped:
         status, exit_code = "stopped_budget", 3
     except Exception as exc:
@@ -578,7 +589,7 @@ def run_experiment(
         lock_path.unlink(missing_ok=True)
         events.emit("run_end", run_id=run_id, path=events_path, status=status, episodes_done=len(episode_records), spent_usd=breaker.spent_usd())
 
-    return exit_code, {
+    return exit_code, _with_cli_fields(exit_code, {
         "status": status,
         "run_dir": str(run_dir),
         "run_id": run_id,
@@ -589,7 +600,53 @@ def run_experiment(
         "spent_usd": breaker.spent_usd(),
         "estimate_usd": estimate_usd,
         "ids": ids,
-    }
+    })
+
+
+def run(
+    config: Config,
+    *,
+    fake: bool = False,
+    scratch: bool = False,
+    episodes: int | None = None,
+    seed: int | None = None,
+    max_cost: float | None = None,
+    json_output: bool = False,
+) -> dict[str, Any]:
+    """Run a validated experiment config and return its machine-readable result."""
+    argv = ["run", config.name]
+    for flag, enabled in (("--fake", fake), ("--scratch", scratch), ("--json", json_output)):
+        if enabled:
+            argv.append(flag)
+    for flag, value in (("--episodes", episodes), ("--seed", seed), ("--max-cost", max_cost)):
+        if value is not None:
+            argv.extend((flag, str(value)))
+    _code, result = run_experiment(
+        config,
+        fake=fake,
+        scratch=scratch,
+        episodes=episodes,
+        seed=seed,
+        max_cost=max_cost,
+        argv=argv,
+    )
+    return result
+
+
+def _with_cli_fields(exit_code: int, result: dict[str, Any]) -> dict[str, Any]:
+    """Add the stable CLI result fields from SPEC §16.1."""
+    output = dict(result)
+    output["exit_code"] = exit_code
+    summary = None
+    run_dir = output.get("run_dir")
+    if run_dir:
+        summary_path = Path(str(run_dir)) / "summary.json"
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+    output["summary"] = summary
+    return output
 
 
 class _StopRun(Exception):
@@ -612,4 +669,4 @@ def _attempt_projection(config: Config, record: dict[str, Any]) -> dict[str, Any
     return {"schema": "simmons.attempt/1", "episode": record["index"], **{key: values[key] for key in config.log_records}}
 
 
-__all__ = ["run_experiment"]
+__all__ = ["run", "run_experiment"]
