@@ -97,7 +97,7 @@ Use `uv run simmons ls [--experiment NAME] [--matrix NAME] [--runs-dir DIR] [--j
 
 `uv run simmons show <run-dir>` gives an overview; add `--episode N` for a record. Add `--role sender|guard|receiver|sender_debrief --prompt` to print a saved request and hash check, `--sample N` to view messages with the cover task, or `--json` for machine output. Debrief is available only if recorded.
 
-For people, `uv run simmons view <run-dir> [--open]` writes local HTML with summary rates, the curve and a filterable episode table. Archived requests are hash-checked; pages work from `file://` without a server. `uv run simmons view --all [--open]` writes `runs-local/index.html`: every run under `runs/` and `runs-local/`, newest first, with models, rates, spend and P₁/P₂/plain prompts by name and content hash; it generates missing run views.
+For people, `uv run simmons view <run-dir> [--open]` writes local HTML with summary rates, the curve and a filterable episode table. Archived requests are hash-checked; pages work from `file://` without a server. `uv run simmons view --all [--open]` writes `runs-local/index.html`: every run under `runs/` and `runs-local/`, newest first, with its description, models, rates, spend and P₁/P₂/plain prompts by name and content hash; it regenerates every finished run's view. Pages show times in Pacific time and link back to the all-runs page.
 
 ## Share runs
 

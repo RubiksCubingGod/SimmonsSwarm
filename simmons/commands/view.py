@@ -8,7 +8,7 @@ import webbrowser
 from pathlib import Path
 
 from ..runner import _base_runs_root
-from ..viewer import generate
+from ..viewer import all_runs_index, generate
 from ..viewer.runs_index import generate_index
 
 
@@ -41,6 +41,12 @@ def _run(args: argparse.Namespace) -> int:
         else:
             index, episodes = generate(args.run_dir)
             print(f"Wrote {index} and {len(episodes)} episode pages")
+            listing = all_runs_index(args.run_dir)
+            if listing is not None:
+                # Keep the page the run's "All runs" link points to current.
+                base = listing.parent.parent
+                generate_index((base / "runs", base / "runs-local"), listing)
+                print(f"Updated {listing}")
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"simmons view: {exc}", file=sys.stderr)
         return 2
