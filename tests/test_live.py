@@ -44,7 +44,6 @@ PREFERRED_MODELS = {
     "GPT": ("openai/o4-mini", "openai/o3", "openai/o3-mini", "openai/o1"),
     "GLM": ("z-ai/glm-4.6", "z-ai/glm-4.5", "z-ai/glm-4.5-air"),
 }
-pytestmark = pytest.mark.live
 
 
 class LiveBlocked(AssertionError):
@@ -119,7 +118,7 @@ def _assert_response(response: Any, family: str, turn: str, *, reasoning: bool =
         _stop(f"{family} {turn} returned no usage.cost")
 
 
-def _run_reference(tmp_root: Path) -> tuple[Path, float]:
+def _run_reference(tmp_root: Path, *, fake: bool = False) -> tuple[Path, float]:
     source = REFERENCE.read_bytes()
     reference = json.loads(source)
     reference["sender_debrief"] = "off"
@@ -128,9 +127,11 @@ def _run_reference(tmp_root: Path) -> tuple[Path, float]:
     temp_config.write_text(json.dumps(reference, indent=2) + "\n", encoding="utf-8")
 
     command = [
-        sys.executable, "-m", "simmons", "run", str(temp_config), "--episodes", "3",
+        sys.executable, "-m", "simmons.cli", "run", str(temp_config), "--episodes", "3",
         "--max-cost", "0.50", "--scratch", "--json",
     ]
+    if fake:
+        command.append("--fake")
     try:
         result = subprocess.run(
             command,
@@ -160,9 +161,11 @@ def _run_reference(tmp_root: Path) -> tuple[Path, float]:
     if round(float(run_record.get("spent_usd", 0.0)), 6) != summary.get("cost", {}).get("usd"):
         _stop("3-episode reference summary and spend ledger disagree")
     cost = float(summary["cost"]["usd"])
-    if not 0 < cost < 0.50:
+    if fake and cost != 0:
+        _stop(f"fake command path unexpectedly spent {cost:.6f} USD")
+    if not fake and not 0 < cost < 0.50:
         _stop(f"3-episode reference spend was outside the expected positive $0.50 bound: {cost:.6f}")
-    if not run_dir.resolve().is_relative_to((ROOT / "runs-local").resolve()):
+    if not fake and not run_dir.resolve().is_relative_to((ROOT / "runs-local").resolve()):
         _stop("3-episode reference output did not land under runs-local")
     for episode in episodes:
         for role, call in episode["calls"].items():
@@ -173,6 +176,13 @@ def _run_reference(tmp_root: Path) -> tuple[Path, float]:
     if REFERENCE.read_bytes() != source:
         _stop("committed experiments/reference.json changed")
     return run_dir, cost
+
+
+def test_live_command_path_runs_fake_provider() -> None:
+    with tempfile.TemporaryDirectory(prefix="simmons-t08-fake-", dir=tempfile.gettempdir()) as temp_dir:
+        run_dir, cost = _run_reference(Path(temp_dir), fake=True)
+    assert run_dir.is_dir()
+    assert cost == 0
 
 
 def _recall_probe(catalog: Any, family: str, slug: str) -> tuple[float, bool, bool, bool]:
@@ -265,6 +275,7 @@ def _recall_probe(catalog: Any, family: str, slug: str) -> tuple[float, bool, bo
     raise AssertionError("unreachable")
 
 
+@pytest.mark.live
 def test_live_reference_run_and_sender_recall_per_family() -> None:
     os.environ.pop("SIMMONS_DISABLE_DOTENV", None)
     load_env(ROOT)
