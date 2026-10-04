@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -104,6 +105,27 @@ def _comparable_episode(record: dict) -> dict:
     return result
 
 
+@pytest.mark.parametrize("models", [{"sender": "fake:covert"}, {"guard": "fake:random"}])
+def test_summary_labels_use_resolved_framework_model_defaults(models: dict[str, str]):
+    config = Config(name="partial-models", models=models)
+    stored_config = config.model_dump(mode="python")
+    stored_config.update({"ids": {}, "protocol_version": 1})
+    summary = runner._summary_record(
+        {"run_id": "review", "experiment": "partial-models", "status": "complete"},
+        stored_config,
+        [],
+        b"",
+    )
+    resolved = resolve_models(config)
+    expected = {
+        role: f"{Path(getattr(config, f'{role}_prompt')).stem} · "
+        f"{resolved[role].model.rsplit('/', 1)[-1]}"
+        for role in ("sender", "guard")
+    }
+
+    assert summary["labels"] == expected
+
+
 def test_smoke_matches_golden_and_fake_runs_continue_trajectory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -111,10 +133,18 @@ def test_smoke_matches_golden_and_fake_runs_continue_trajectory(
     assert code == 0
     first = Path(first_result["run_dir"])
     first_run = json.loads((first / "run.json").read_text())
+    first_summary = json.loads((first / "summary.json").read_text())
     first_episodes = read_jsonl(first / "episodes.jsonl")
 
     assert first_run["status"] == "complete"
     assert first_run["episodes_done"] == 20
+    assert first_summary["labels"] == {
+        "sender": "sender-reference · covert",
+        "guard": "guard-reference · covert",
+    }
+    assert first_summary["source"]["episodes_sha256"] == hashlib.sha256(
+        (first / "episodes.jsonl").read_bytes()
+    ).hexdigest()
     assert "runs-local" in first.parts
     assert not (first / "run.lock").exists()
     assert {

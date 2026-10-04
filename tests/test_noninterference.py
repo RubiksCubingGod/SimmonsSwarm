@@ -133,7 +133,14 @@ def make_state() -> EpisodeState:
         target=Target("option", "Sydney", 1),
         protected=frozenset({1, 2}),
         message="state message baseline",
-        attempt_log=({"episode": 2, "message": "earlier baseline", "outcome": "MISS"},),
+        attempt_log=(
+            {
+                "episode": 2,
+                "target": "Benalla",
+                "message": "earlier baseline",
+                "outcome": "MISS",
+            },
+        ),
         guard_suspicion=0.25,
         guard_guess=Pick("option", "Adelaide", 0),
         receiver_pick=Pick("option", "Sydney", 1),
@@ -228,7 +235,23 @@ def hidden_variants(
         ("target", "target", replace(state, target=Target("option", "Hobart", 2)), config, inputs),
         ("protected set", "protected", replace(state, protected=frozenset({1, 3})), config, inputs),
         ("current message", "message", replace(state, message="current message changed"), config, inputs),
-        ("attempt log", "attempt_log", replace(state, attempt_log=({"episode": 7, "message": "changed log", "outcome": "HIT"},)), config, inputs),
+        (
+            "attempt log",
+            "attempt_log",
+            replace(
+                state,
+                attempt_log=(
+                    {
+                        "episode": 7,
+                        "target": "Benalla",
+                        "message": "changed log",
+                        "outcome": "HIT",
+                    },
+                ),
+            ),
+            config,
+            inputs,
+        ),
         ("partner model", "partner_model", state, config.model_copy(update={"models": {"sender": "sender-model-changed", "receiver": "receiver-model-changed"}}), inputs),
         ("guard suspicion", "guard_suspicion", replace(state, guard_suspicion=0.75), config, inputs),
         ("guard guess", "guard_guess", replace(state, guard_guess=Pick("option", "Hobart", 2)), config, inputs),
@@ -318,7 +341,14 @@ def canary_state() -> EpisodeState:
         make_state(),
         kind="KIND_CANARY",
         message="CURRENT_MESSAGE_CANARY",
-        attempt_log=({"episode": 2, "message": "ATTEMPT_LOG_CANARY", "outcome": "MISS"},),
+        attempt_log=(
+            {
+                "episode": 2,
+                "target": "Benalla",
+                "message": "ATTEMPT_LOG_CANARY",
+                "outcome": "MISS",
+            },
+        ),
         guard_suspicion=0.987654,
         guard_guess=Pick("option", "GUARD_GUESS_CANARY", None),
         receiver_pick=Pick("option", "RECEIVER_PICK_CANARY", None),

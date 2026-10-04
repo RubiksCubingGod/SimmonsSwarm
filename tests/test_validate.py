@@ -416,11 +416,12 @@ def test_context_projection_keeps_experiment_log_window_on_one_episode_continuat
     models = resolve_models(config)
     entries = tuple(
         {
+            "episode": episode,
             "target": "Sydney",
             "message": ("Officials discussed the foreign affairs report. " * 50)[:2000],
             "outcome": "CATCH",
         }
-        for _ in range(20)
+        for episode in range(20)
     )
     options = tuple(inputs.option_set.options[:2])
     continued_state = EpisodeState(

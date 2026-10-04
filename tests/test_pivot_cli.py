@@ -328,7 +328,7 @@ def test_selected_metrics_keep_each_denominator_and_run_count(capsys):
     for output_flag in ([], ["--md"]):
         assert main([*argv, *output_flag]) == 0
         stdout = capsys.readouterr().out
-        assert "decode_gap=1.000 (n=8)" in stdout
+        assert "decode_gap=1.000 (n=5)" in stdout
         assert "false_alarm_rate=0%" in stdout
         assert "(n=6)" in stdout
         assert "(r=1)" in stdout

@@ -51,7 +51,14 @@ def make_state(*, protected: frozenset[int] | None = None) -> EpisodeState:
         target=Target("option", "Sydney", 1),
         protected=protected,
         message="A news story.",
-        attempt_log=({"episode": 1, "target": "Adelaide", "outcome": "MISS"},),
+        attempt_log=(
+            {
+                "episode": 1,
+                "target": "Adelaide",
+                "message": "An earlier story.",
+                "outcome": "MISS",
+            },
+        ),
         guard_suspicion=0.3,
         guard_guess=Pick("option", "Adelaide", 0),
         receiver_pick=Pick("option", "Sydney", 1),

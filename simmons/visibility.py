@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .config import Config
@@ -141,9 +140,22 @@ def _protected_section(state: EpisodeState, config: Config) -> str:
     return _tag("protected", "\n".join(values))
 
 
-def _log_section(entries: tuple[Mapping[str, Any], ...]) -> str:
-    lines = [json.dumps(dict(entry), sort_keys=True, ensure_ascii=False, separators=(",", ":")) for entry in entries]
-    return _tag("attempt_log", "\n".join(lines))
+def _log_section(
+    entries: tuple[Mapping[str, Any], ...], log_records: Sequence[str] | None = None
+) -> str:
+    blocks: list[str] = []
+    for entry in entries:
+        header = f"#{entry['episode']}"
+        field_order = log_records if log_records is not None else entry
+        for field in field_order:
+            if field in {"schema", "episode", "message"} or field not in entry:
+                continue
+            header += f" · {field}: {entry[field]}"
+        lines = [header]
+        if "message" in entry:
+            lines.append(f"message: {entry['message']}")
+        blocks.append("\n".join(lines))
+    return _tag("attempt_log", "\n".join(blocks))
 
 
 def _configured_model(value: Any) -> str | None:
@@ -231,7 +243,7 @@ def build_view(role: str, state: EpisodeState, config: Config, inputs: Inputs) -
             "protected_count": protected_count,
             "target": state.target,
             "protected_section": visible_protected,
-            "log_section": _log_section(state.attempt_log),
+            "log_section": _log_section(state.attempt_log, config.log_records),
             "partner_section": _partner_section(config, role),
             "max_message_chars": config.max_message_chars,
         }
@@ -289,7 +301,11 @@ def build_view(role: str, state: EpisodeState, config: Config, inputs: Inputs) -
         if state.message is None:
             raise ValueError("receiver view requires the sender's message")
         visible_protected = protected_section if config.receiver_knows_protected else ""
-        log_section = _log_section(state.attempt_log) if config.receiver_sees_log else ""
+        log_section = (
+            _log_section(state.attempt_log, config.log_records)
+            if config.receiver_sees_log
+            else ""
+        )
         return _with_rendered_sections(
             ReceiverView(
                 role=role,
