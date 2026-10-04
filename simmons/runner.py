@@ -487,6 +487,16 @@ def _make_state(line: dict[str, Any], config: Config, inputs: Any, attempt_log: 
     )
 
 
+def _preflight_message(completed: dict[str, tuple[RoleResponse, dict[str, Any], EpisodeState]]) -> str:
+    """Return the first message a preflight sender wrote, or a placeholder."""
+    for role in ("sender", "plain_sender"):
+        if role in completed:
+            message = completed[role][1].get("message")
+            if isinstance(message, str) and message:
+                return message
+    return "[preflight message]"
+
+
 def _preflight(ctx: EpisodeContext, plan: list[dict[str, Any]]) -> dict[str, Any]:
     """Probe one request for each used role/model and check the reasoning replay."""
     kinds = {str(line["kind"]) for line in plan}
@@ -501,12 +511,17 @@ def _preflight(ctx: EpisodeContext, plan: list[dict[str, Any]]) -> dict[str, Any
     role_results: list[dict[str, Any]] = []
     for role in ordered_roles:
         line = role_line[role]
+        message = None
+        if role in {"guard", "receiver"}:
+            # Probe with a message a sender just wrote: some models answer a
+            # placeholder with a request for the real message instead of the tool.
+            message = _preflight_message(completed)
         state = _make_state(
             line,
             ctx.config,
             ctx.inputs,
             tuple(ctx.attempt_log),
-            message="[preflight message]" if role in {"guard", "receiver"} else None,
+            message=message,
         )
         protected_options = None
         if role == "plain_sender" and line.get("protected") is not None:
