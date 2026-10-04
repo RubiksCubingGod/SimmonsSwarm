@@ -178,7 +178,10 @@ def run_cap(config: Config, max_cost: float | None = None) -> float:
     configured = _config_cap(config)
     if max_cost is None:
         return float(configured)
-    override = _decimal(max_cost, "--max-cost")
+    try:
+        override = _decimal(max_cost, "--max-cost")
+    except ValueError as exc:
+        raise BreakerTripped("--max-cost must be a finite positive number") from exc
     if override == 0:
         raise BreakerTripped("--max-cost must be greater than 0")
     if override > configured:

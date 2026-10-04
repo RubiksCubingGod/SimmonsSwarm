@@ -327,6 +327,8 @@ def test_run_cap_refuses_raised_override_and_returns_lowered_cap():
         spend.run_cap(config, max_cost=0.06)
     with pytest.raises(spend.BreakerTripped, match="greater than 0"):
         spend.run_cap(config, max_cost=0)
+    with pytest.raises(spend.BreakerTripped, match="finite positive"):
+        spend.run_cap(config, max_cost=-0.01)
 
 
 def test_between_waves_zero_credit_trips_and_positive_credit_limits_future_reserves():
