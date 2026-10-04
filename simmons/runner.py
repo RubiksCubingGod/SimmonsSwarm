@@ -12,8 +12,9 @@ import subprocess
 import tempfile
 import uuid
 from collections import Counter
+from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,7 @@ from .payloads import get_payload
 from .payloads import option as _option_payload  # register the M1 option payload
 from .plan import build_plan, plan_hash
 from .providers.base import get_provider
-from .records import append_jsonl, canonical_json, request_sha256, write_metadata
+from .records import append_jsonl, canonical_json, read_jsonl, request_sha256, write_metadata
 from .scorers import get_scorer
 from .scorers import exact_match as _exact_match_scorer  # register the M1 scorer
 from .spend import Breaker, BreakerTripped, between_waves, check_before_run, estimate, run_cap
@@ -92,6 +93,197 @@ def _base_runs_root(repo_root: Path, local: bool) -> Path:
     override = os.environ.get("SIMMONS_RUNS_ROOT")
     root = Path(override).expanduser() if override else repo_root
     return root / ("runs-local" if local else "runs")
+
+
+@dataclass(frozen=True)
+class _RunMetadata:
+    path: Path
+    run: dict[str, Any]
+    config: dict[str, Any]
+
+    @property
+    def run_id(self) -> str:
+        value = self.run.get("run_id")
+        return value if isinstance(value, str) and value else self.path.name
+
+    @property
+    def config_hash(self) -> str | None:
+        for record in (self.run, self.config):
+            ids = record.get("ids")
+            if isinstance(ids, Mapping) and isinstance(ids.get("config"), str):
+                return str(ids["config"])
+        return None
+
+    @property
+    def seed(self) -> int | None:
+        value = self.config.get("seed")
+        return value if type(value) is int else None
+
+
+@dataclass(frozen=True)
+class _RunHistory:
+    metadata: _RunMetadata
+    episodes: list[dict[str, Any]]
+    attempts: list[dict[str, Any]]
+
+
+def _history_roots(repo_root: Path, local: bool) -> tuple[Path, ...]:
+    """Return only roots this run is allowed to inherit from."""
+    primary = _base_runs_root(repo_root, local)
+    roots = (primary, primary.parent / "runs") if local else (primary,)
+    return tuple(dict.fromkeys(root.resolve() for root in roots))
+
+
+def _read_object(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"expected a JSON object in {path}")
+    return value
+
+
+def _run_metadata(run_dir: Path) -> _RunMetadata:
+    return _RunMetadata(
+        path=run_dir,
+        run=_read_object(run_dir / "run.json"),
+        config=_read_object(run_dir / "config.json"),
+    )
+
+
+def _iter_run_metadata(roots: Iterable[Path]) -> list[_RunMetadata]:
+    result: list[_RunMetadata] = []
+    seen_paths: set[Path] = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for run_json in sorted(root.rglob("run.json")):
+            run_dir = run_json.parent
+            resolved = run_dir.resolve()
+            if resolved in seen_paths:
+                continue
+            seen_paths.add(resolved)
+            result.append(_run_metadata(run_dir))
+    return result
+
+
+def _trajectory_ancestors(metadata: _RunMetadata) -> list[str]:
+    trajectory = metadata.run.get("trajectory", {})
+    if not isinstance(trajectory, Mapping):
+        raise ValueError(f"{metadata.path / 'run.json'}: trajectory must be an object")
+    raw = trajectory.get("inherited_from", [])
+    if not isinstance(raw, list):
+        raise ValueError(
+            f"{metadata.path / 'run.json'}: trajectory.inherited_from must be an array"
+        )
+    result: list[str] = []
+    for item in raw:
+        if not isinstance(item, Mapping) or not isinstance(item.get("run_id"), str):
+            raise ValueError(f"{metadata.path / 'run.json'}: invalid trajectory ancestor")
+        run_id = str(item["run_id"])
+        if run_id not in result:
+            result.append(run_id)
+    return result
+
+
+def _history_signature(metadata: _RunMetadata) -> tuple[tuple[str, int], ...]:
+    trajectory = metadata.run.get("trajectory", {})
+    if not isinstance(trajectory, Mapping):
+        raise ValueError(f"{metadata.path / 'run.json'}: trajectory must be an object")
+    raw = trajectory.get("inherited_from", [])
+    if not isinstance(raw, list):
+        raise ValueError(f"{metadata.path / 'run.json'}: trajectory.inherited_from must be an array")
+    signature: list[tuple[str, int]] = []
+    for item in raw:
+        if not isinstance(item, Mapping) or not isinstance(item.get("run_id"), str):
+            raise ValueError(f"{metadata.path / 'run.json'}: invalid trajectory ancestor")
+        entries = item.get("entries", 0)
+        if type(entries) is not int or entries < 0:
+            raise ValueError(f"{metadata.path / 'run.json'}: ancestor entries must be a non-negative integer")
+        signature.append((str(item["run_id"]), entries))
+    return tuple(sorted(signature))
+
+
+def _find_trajectory(
+    repo_root: Path,
+    *,
+    local: bool,
+    config_hash: str,
+    seed: int,
+    log_scope: str,
+) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return the next global index, inherited attempt log, and lineage."""
+    if log_scope != "experiment":
+        return 0, [], []
+
+    matching = [
+        item
+        for item in _iter_run_metadata(_history_roots(repo_root, local))
+        if item.config_hash == config_hash and item.seed == seed
+    ]
+    if not matching:
+        return 0, [], []
+
+    by_id: dict[str, _RunHistory] = {}
+    for metadata in matching:
+        run_dir = metadata.path
+        episodes_path = run_dir / "episodes.jsonl"
+        attempts_path = run_dir / "attempt-log.jsonl"
+        episodes = read_jsonl(episodes_path) if episodes_path.exists() else []
+        attempts = read_jsonl(attempts_path) if attempts_path.exists() else []
+        by_id.setdefault(metadata.run_id, _RunHistory(metadata, episodes, attempts))
+
+    referenced = {
+        ancestor
+        for history in by_id.values()
+        for ancestor in _trajectory_ancestors(history.metadata)
+        if ancestor in by_id
+    }
+    heads = [history for run_id, history in by_id.items() if run_id not in referenced]
+    if not heads:
+        heads = list(by_id.values())
+
+    def branch_end(head: _RunHistory) -> int:
+        run_ids = [*_trajectory_ancestors(head.metadata), head.metadata.run_id]
+        missing = [run_id for run_id in run_ids if run_id not in by_id]
+        if missing:
+            raise ValueError(
+                f"{head.metadata.path / 'run.json'}: missing trajectory history run {missing[0]}"
+            )
+        highest = -1
+        for run_id in dict.fromkeys(run_ids):
+            history = by_id[run_id]
+            highest = max(
+                highest,
+                max((int(record["index"]) for record in history.episodes), default=-1),
+            )
+        return highest
+
+    # The tie-break is stable across machines and agrees with the run-id order.
+    head = min(heads, key=lambda item: (-branch_end(item), item.metadata.run_id))
+    selected_ids = list(dict.fromkeys([*_trajectory_ancestors(head.metadata), head.metadata.run_id]))
+    inherited_log: list[dict[str, Any]] = []
+    inherited_from: list[dict[str, Any]] = []
+    highest_index = -1
+    for run_id in selected_ids:
+        history = by_id[run_id]
+        highest_index = max(
+            highest_index,
+            max((int(record["index"]) for record in history.episodes), default=-1),
+        )
+        inherited_log.extend(history.attempts)
+        inherited_from.append({"run_id": run_id, "entries": len(history.attempts)})
+
+    inherited_log.sort(key=lambda record: int(record["episode"]))
+    return highest_index + 1, inherited_log, inherited_from
+
+
+def _forked_run_ids(metadata: Iterable[_RunMetadata]) -> set[str]:
+    groups: dict[tuple[str | None, int | None, tuple[tuple[str, int], ...]], set[str]] = {}
+    for item in metadata:
+        if item.config.get("log_scope", "experiment") != "experiment":
+            continue
+        key = (item.config_hash, item.seed, _history_signature(item))
+        groups.setdefault(key, set()).add(item.run_id)
+    return {run_id for run_ids in groups.values() if len(run_ids) > 1 for run_id in run_ids}
 
 
 def _resolve_config(
@@ -238,7 +430,13 @@ def _preflight(ctx: EpisodeContext, plan: list[dict[str, Any]]) -> dict[str, Any
     role_results: list[dict[str, Any]] = []
     for role in ordered_roles:
         line = role_line[role]
-        state = _make_state(line, ctx.config, ctx.inputs, (), message="[preflight message]" if role in {"guard", "receiver"} else None)
+        state = _make_state(
+            line,
+            ctx.config,
+            ctx.inputs,
+            tuple(ctx.attempt_log),
+            message="[preflight message]" if role in {"guard", "receiver"} else None,
+        )
         protected_options = None
         if role == "plain_sender" and line.get("protected") is not None:
             protected_options = tuple(
@@ -331,12 +529,24 @@ def run_experiment(
                     provider_status.detail or f"missing key for provider {provider_status.provider}"
                 )
         inputs = load_inputs(config, repo_root=root)
+        ids_source = compute_ids(config, repo_root=root)
+        local = scratch or fake or all(
+            spec is not None and spec.provider == "fake"
+            for spec in resolved.values()
+            if spec is not None
+        )
+        trajectory_start, inherited_log, inherited_from = _find_trajectory(
+            root,
+            local=local,
+            config_hash=ids_source["config_hash"],
+            seed=config.seed,
+            log_scope=config.log_scope,
+        )
+        plan = build_plan(config, inputs.option_set, start=trajectory_start)
         payload_type = get_payload(config.payload)
         scorer_type = get_scorer(config.scorer)
         payload = payload_type()
         scorer = scorer_type()
-        plan = build_plan(config, inputs.option_set)
-        ids_source = compute_ids(config, repo_root=root)
         ids = {
             "config": ids_source["config_hash"],
             "arena": ids_source["arena_hash"],
@@ -344,7 +554,6 @@ def run_experiment(
             "guard": ids_source["guard_id"],
             "plan": plan_hash(plan),
         }
-        local = scratch or fake or all(spec is not None and spec.provider == "fake" for spec in resolved.values() if spec is not None)
         catalog = None
         if any(spec is not None and spec.provider != "fake" for spec in resolved.values()):
             catalog = load_catalog(root / ".simmons" / "openrouter-catalog.json")
@@ -415,7 +624,7 @@ def run_experiment(
         "matrix": None,
         "episodes_planned": len(plan),
         "episodes_done": 0,
-        "trajectory": {"start": 0, "inherited_from": []},
+        "trajectory": {"start": trajectory_start, "inherited_from": inherited_from},
         "cap_usd": run_cap(config, max_cost),
         "spent_usd": 0.0,
         "preflight": {},
@@ -443,6 +652,9 @@ def run_experiment(
     write_metadata(run_dir / "run.json", run_record)
 
     breaker = Breaker(run_cap(config, max_cost), spend_path)
+    preflight_log = tuple(inherited_log)
+    if config.log_window is not None:
+        preflight_log = preflight_log[-config.log_window :]
     ctx = EpisodeContext(
         config=config,
         inputs=inputs,
@@ -455,12 +667,13 @@ def run_experiment(
         request_log_path=str(raw_request_path),
         calls_log_path=str(calls_path),
         events_log_path=str(events_path),
+        attempt_log=preflight_log,
     )
     status = "complete"
     exit_code = 0
     episode_records: list[dict[str, Any]] = []
     attempt_records: list[dict[str, Any]] = []
-    completed_log: list[dict[str, Any]] = []
+    completed_log: list[dict[str, Any]] = list(inherited_log)
     consecutive_failed_waves = 0
     consecutive_length_errors = 0
     interrupted = False
@@ -519,7 +732,7 @@ def run_experiment(
                     run_record["episodes_done"] = len(episode_records)
                     run_record["spent_usd"] = breaker.spent_usd()
                     sys_line = (
-                        f"[{episode_record['index'] + 1}/{len(plan)}] {episode_record['kind']} "
+                        f"[{len(episode_records)}/{len(plan)}] {episode_record['kind']} "
                         f"{episode_record['outcome']} spend=${run_record['spent_usd']:.4f}"
                     )
                     import sys

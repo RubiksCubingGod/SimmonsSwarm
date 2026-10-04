@@ -132,3 +132,11 @@ Run `uv run simmons schema` to print the config JSON Schema. Configs are strict 
 ## Look at an episode
 
 Use `uv run simmons show <run-dir>` for a run overview and `--episode N` for one record. Add `--role sender|guard|receiver|sender_debrief --prompt` to print the saved request and its SHA-256 check; the sender debrief is available when that run recorded it. Use `--sample N` to read N messages beside the run's cover task, or `--json` for machine output.
+
+## Diagnose a run
+
+Run `uv run simmons ls [--experiment NAME] [--matrix NAME] [--runs-dir DIR] [--json]`. It reports run metrics, spend and total committed size; a `running` run with no event in the last ten minutes is shown as `stale`. Add `--cost` for totals by author, experiment and matrix.
+
+## Trajectories
+
+With `log_scope: "experiment"`, a run continues the matching config hash and seed from the allowed run roots, inherits its attempt log and starts after the highest recorded episode index. Fake and scratch runs can continue committed history; committed runs ignore `runs-local/`. `log_scope: "run"` starts at index zero. `simmons ls` marks forked runs; the next run follows the longer branch, then the earlier run id on a tie.

@@ -6,6 +6,7 @@ import os
 import socket
 import shutil
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -94,3 +95,9 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     if _RUNS_ROOT is not None:
         shutil.rmtree(_RUNS_ROOT, ignore_errors=True)
         _RUNS_ROOT = None
+
+
+@pytest.fixture(autouse=True)
+def _isolate_run_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep experiment trajectories within one test unless it explicitly shares them."""
+    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(tmp_path))
