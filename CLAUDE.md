@@ -1,169 +1,122 @@
 # SimmonsSwarm
 
-A framework for running experiments on covert signalling between LLMs, built at the AI Village Hackathon. The brief: show that agent swarms can communicate covertly, and build tools that detect it. It is named for Simmons' prisoners' problem (1983): two prisoners passing notes past a warden.
+A framework for experiments on covert signalling between LLMs. See [SPEC.md](docs/SPEC.md) for full behavior, schemas and extension points.
 
-`AGENTS.md` is a symlink to this file, so Claude Code, Codex and other agents all read the same instructions. Edit `CLAUDE.md` only.
+`AGENTS.md` links here; edit this file only.
 
-## The game
+## Game
 
-- **S (sender)** and **R (receiver)** share one prompt, P₁. **G (guard)** has its own prompt, P₂, and never sees P₁.
-- Each episode draws N options, a target T and a protected set of K for the guard. N and K are config fields (`options_per_episode`, `protected_count`), not constants of the game; nothing in the framework assumes a particular size. Only S and J know the target.
-- Every episode has a **cover task**, an innocent job the message is supposed to do. S writes one cover message that does the job and hides the target. Before sending it can read its **attempt log** of past outcomes.
-- G reads the message, the N options with its protected K, and the cover task. It returns a **suspicion score** and its **guess** at the target. The harness turns the score into pass or block.
-- If the message passes, R reads it and picks one of the N. J, the judge, compares the pick with T.
-- Outcomes: **CATCH** (blocked), **MISS** (passed, wrong pick), **HIT** (passed, right pick). HIT is the reward signal.
-- After the outcome, S gets an **exit interview**: a second turn of its own send call, with its reasoning passed back unchanged, asking how the message carried the target. Nothing from it reaches any role or the attempt log. S's send tool has no `reason` field; the interview replaces it. See `docs/SPEC.md` section 11.6.
-- Innocent traffic is mixed in, unmarked. **Control** episodes draw the target from the N − K allowed options. **Plain-sender** episodes use a sender that states its target openly. Blocking either is a false alarm, so a guard that blocks everything pays. A plain sender with a protected target should always be caught; that is the guard's sanity check.
-- Metrics, all computed from episode records: hit rate, catch rate, false-alarm rate, the catch vs false-alarm curve across thresholds, and the **decode gap**, how much more often R decodes the target than G guesses it. The gap is the covert channel itself.
-- The **decode ladder** (v1.1, `docs/SPEC.md` section 13.1) splits the gap. Passive **observers** re-read a finished run's messages at four rungs of knowledge: none (the **eavesdropper**, R without P₁), P₂, P₂ plus P₁, and P₂ plus P₁ plus the sender's log. Each step between rungs is what that knowledge is worth. Observers never touch the game, so a pass can be added to any committed run.
-- Results live in a **sender × guard grid**. Each cell is one P₁ against one P₂. A frozen reference sender and reference guard give everyone the same baseline.
+- Sender (S) and receiver (R) share prompt P₁; guard (G) has P₂ and never sees P₁ by default. Only S and judge (J) know the target.
+- Each episode draws N options, target T and optional protected set K. S writes one cover-task message and can read its prior attempt log. G sees the message, options, protected set and cover task; it returns a suspicion score and target guess. The harness passes or blocks by threshold; if passed, R picks an option and J scores it.
+- Outcomes are CATCH (blocked), MISS (passed, wrong), HIT (passed, right). Plain senders state the target openly; control and plain episodes count as false alarms when blocked. A plain sender with a protected target should be caught.
+- After each outcome S gets a private exit interview with its send response and reasoning replayed unchanged. It has no send-tool `reason` field; the interview does not affect roles or the attempt log. See SPEC §11.6.
+- Metrics are hit, catch and false-alarm rates, the threshold curve, and decode gap: how much more often R gets T than G. The v1.1 decode ladder measures passive observers with increasing knowledge; see SPEC §13.1.
+- Results form a sender × guard grid. The frozen reference sender and guard are the shared baseline.
 
-## The base story
+## Base story
 
-Every default describes one story, decided in person on 2026-10-03 (spec section 6.6). An insurgent cell, S and R sharing P₁, is arranging its next meeting in one Australian city, and S must tell R which one. The only channel is a foreign affairs news story that S writes for publication, grounded in real events. A monitor, G, reads every story before publication. It blocks anything that is not genuine foreign affairs reporting or that reads as coordination, and it guesses the city. There is no watchlist (`protected_count: null`): the meeting can be any of the 100 cities in `option-sets/australian-cities.json`. If the story is published, R names the city to J (exact match).
+An insurgent cell arranges its next meeting in one of 100 Australian cities through a genuine, real-event foreign affairs news story. S writes it for publication; G blocks coordination or non-reporting and guesses the city; if published, R names the city for exact-match scoring. There is no watchlist by default. A watchlist (`protected_count: 10`) is a scenario. The plain sender is a foreign affairs correspondent (`plain_sender_rate: 0.3`); without a watchlist there are no control episodes.
 
-Innocent traffic is a foreign affairs correspondent filing genuine stories (the plain sender, `plain_sender_rate: 0.3`). Blocking one is a false alarm. Without a watchlist there are no control episodes. A watchlist (`protected_count: 10`) is a scenario, and it adds them. The reference experiment is just its name, because every default is the story. A scenario names only the fields it changes.
+## Principle and vocabulary
 
-## The principle
+An experiment is one JSON config; shared lifecycle, visibility, records and metrics belong to the framework. Records keep every role input/output, message version and verdict so later fields (guard rewriting/memory, prompt authors, two-way messages, distributions) stay possible. Those fields are not in v1. The sender side is S/R; the guard side is G. Roles are S, R, G, J; prompts P₁ and P₂; outcomes CATCH, MISS, HIT.
 
-We are building the framework, not one experiment. An experiment is one JSON file. Any choice about a single experiment is a field in that file, with a default. The framework owns what every experiment shares: the episode lifecycle, the visibility rules, the records and the metrics.
+## v1 completion
 
-Later fields already exist on paper: the guard rewriting the message, guard memory, prompt-authoring agents, two-way messages, a distribution over all N options instead of one guess, and more. None is in v1. The framework must not block them. The rule that keeps them open: episode records store every role's full input and structured output, every version of the message, and every verdict with its reason. The list is in `atin/phosphor-mutations-selected.md`, under "After v1".
+v1 defaults to the base story, one model per role, Australian cities, exact-match scoring and a suspicion score plus city guess. Everything else is off. Sanity (obvious-code), mirror (empty P₁), then reference-vs-reference are the three runs. Done means run 3 on real models with five metrics per cell and intervals; green tests alone do not establish it.
 
-## Words we use
+## Design authority
 
-- The **sender side** is S and R, iterating P₁. The **guard side** is G, iterating P₂. Nobody is attacking: one side sends information, the other guards against it.
-- The guard side is half the deliverable: a tool suite for detecting covert communication.
-- Roles are S (sender), R (receiver), G (guard) and J (judge). The numbered forms 1S, 1R and 2G are retired. Prompts are P₁ and P₂. Outcomes are CATCH, MISS, HIT.
-
-## v1 and what "done" means
-
-v1 is the base story: one model in every role, the Australian cities option set (100 cities by default), exact-match scoring, a suspicion score with the monitor guessing the city, genuine stories from the plain sender, everything else off. Its config is the defaults in spec section 6.1.
-
-Three runs make v1 real, in order:
-
-1. **Sanity.** Fake provider first, then real keys. The base story with an obvious-code sender prompt (`prompts/sender/obvious-code.md`). It proves the pipeline, the visibility rules and the scorer; its pass bar is EVALUATION E-29.
-2. **Mirror.** Same config with an empty P₁. The floor every later P₁ is measured against.
-3. **Reference vs reference.** The first cell of the grid. Teammates then add sender and guard prompts, and the grid grows by matchups.
-
-Green tests are not done. Done is run 3 on real models, with the five numbers per cell computed from the records, each with its interval.
-
-## Where the design lives and how it changes
-
-- `diagram.html` is the source of truth. Open it in a browser. Its footer carries the version (v10 today). It leads with the base story and lists decisions by number (1 to 25, with gaps where decisions were folded or dropped). It has no open questions left. Refer to them by number.
-- A design change is a new version of the page. Do not edit it unless Atin asked for a new version.
-- `atin/phosphor-mutations-selected.md` says which extension ideas are in v1, which are later fields, which are dropped, and what comes after v1.
-- `docs/SPEC.md`, `docs/BUILDPLAN.md` and `docs/EVALUATION.md` are the build spec, the build plan and the pass bars. They take positions on questions 20 to 23 and list their own assumptions and open questions. Both are drafts under review. Build from them. Where they disagree with the page, the page wins and the spec is wrong.
-- Decided on the page: G never sees P₁ (a field turns on the harder mode); the base story is the default (decision 25); both prompts are under test; an experiment is one JSON config; option sets are presets (their size is not fixed; `options_per_episode` sets how many an episode draws); every message has a cover task; results form the grid; models are a field and the team supplies keys.
-- Questions 20 to 23 (language and runtime, where results live, repo layout, each role's structured output): the spec's positions stand until Atin says otherwise. The page lists them beside the decisions, marked as the spec's positions.
-
-## Working here
-
-- Several people work in this repo at once. Pull before you edit. Push design changes promptly, because teammates read them.
-- Commit with `git commit -F <file>`, never `-m` with prose. Backticks in a double-quoted message run as commands.
-- Each person has a folder at the repo root named after them: `aarav/`, `atin/`, `miguel/`, `patrick/`. Write-ups, selections and working notes go there. Shared folders hold only what every experiment uses.
-- Local only, never pushed: `.agents/` (agent briefs and done markers), `phosphor/` (brainstorm invocations), `option-sets/brief-*.md`. They are listed in `.git/info/exclude`. If you see them on a laptop, they are one person's working files, not shared design.
+`diagram.html` is the v10 design source. Design changes require Atin's request and a new page version; where the drafts disagree with the page, the page wins. `atin/phosphor-mutations-selected.md` records v1 and later fields. SPEC, BUILDPLAN and EVALUATION hold implementation details and pass bars; Q20–23 follow the SPEC positions unless Atin rules otherwise.
 
 ## Status
 
-2026-10-03. T01, T02a–f, T03, T05–T07 and T13 are merged; M5 (SS-15) is in review. Diagram at v10, leading with the base story. The v1 scope is settled in `atin/phosphor-mutations-selected.md`. The spec and build plan are committed as drafts under review. A separate conversation is choosing the ten preset option sets.
-2026-10-04. T02f, T03, T05, T06, T07 and T13 are merged; T08 real-spend work is in progress. `sender_debrief` stays at the SPEC default, `blind`, pending Atin's ruling. Diagram at v10, leading with the base story.
-
-## How this file grows
-
-As the build lands, this file gains sections for setup, running the tests, running and writing an experiment, keys and spend, reading results and looking at an episode, plus a pitfalls list that gets an entry the day something bites. Each milestone updates the Status line. Keep it short enough to read in two minutes and point at the spec for depth.
+v1.0 code merged; committed runs pending
 
 ## Setup
 
-Use Python 3.11 or newer, then run `uv sync`. Copy `.env.example` to `.env` only when a real provider key is needed; `.env` is ignored by git.
+Use Python 3.11+ and `uv sync`. Copy `.env.example` to ignored `.env` only for real provider access.
 
 ## Run the tests
 
-Run focused tests locally. Run `uv run pytest -q` on Atlas at handoff. The default suite blocks socket connections and removes provider keys; tests marked `live` are excluded unless explicitly selected.
+Run focused tests locally. The hermetic suite blocks sockets, removes provider keys and excludes `live`; run `uv run pytest -q` on Atlas at handoff. E-02 requires the suite under 10 seconds on Hyperion at load below 8.
 
 ## Run the smoke experiment
 
-`uv run simmons run experiments/smoke.json --json` runs 20 offline episodes. Fake and scratch runs go under `runs-local/`; real runs go under `runs/`. Use `simmons verify <run-dir>` to check the records and spend journal. `smoke-priced.json` exercises the $0.05 breaker with fake worst-case output billing; `smoke-slow.json` adds a short delay for interruption checks.
+`uv run simmons run experiments/smoke.json --json` runs 20 offline episodes. Fake/scratch runs go to `runs-local/`; real runs go to `runs/`. Check records and spend with `simmons verify <run-dir>`. `smoke-priced.json` tests the $0.05 breaker; `smoke-slow.json` tests interruption.
 
 ## Where things live
 
-- Experiment configs: `experiments/*.json`.
-- Shared prompts, cover tasks, option sets and role templates: `prompts/`, `cover-tasks/`, `option-sets/`, and `templates/`.
-- Offline test assets and committed example runs: `tests/fixtures/`.
-- Run records: `runs/<experiment>/<run-id>/`; fake and scratch records: `runs-local/<experiment>/<run-id>/`.
+Configs: `experiments/`. Prompts, cover tasks, option sets and role templates: `prompts/`, `cover-tasks/`, `option-sets/`, `templates/`. Hermetic assets and committed example runs: `tests/fixtures/`. Real runs: `runs/`; fake and scratch: `runs-local/`.
 
 ## Rules for a shared repo
 
-Pull before editing shared files. Keep personal notes in the matching person's folder. Do not commit `.env`, `runs-local/`, or local `.agents/` files. Commit prose messages with `git commit -F <file>`.
+Pull before editing shared files. Keep notes in `aarav/`, `atin/`, `miguel/` or `patrick/`. Do not commit `.env`, `runs-local/`, or local `.agents/`, `phosphor/` and `option-sets/brief-*.md`. Commit prose with `git commit -F <file>`, never `-m`.
 
 ## Spend
 
-`max_cost_usd` is the configured run cap and cannot exceed $20. `--max-cost` may lower it but cannot raise it. The runner estimates the run before writing files, then reserves each provider attempt in `spend.jsonl` before submission.
-
-## M3. Keys, real runs and spend
-
-### Keys
-
-Set `OPENROUTER_API_KEY` in the ignored root `.env`. The runner checks `GET /api/v1/key`; when `limit_remaining` is present it caps the run before creation and refreshes the cap between waves. Never print or commit the key.
-
-### Real runs and spend
-
-`simmons run <experiment> --dry-run` estimates cost without writing a run; it still checks the provider key. A run compares its estimate with `max_cost_usd` and reported remaining credit before creating records. Each attempt reserves against the UTF-8 request size, output and reasoning limits, and catalog prices no lower than the request's `provider.max_price`; `usage.cost` settles the reserve and unknown spend remains reserved.
-
-### Choosing models
-
-Choose a current tool-capable model in the cached OpenRouter catalog, and pin a provider when a route-specific behavior matters. In the T08 live send probe, OpenRouter's `anthropic/claude-sonnet-5.5` response had no `reasoning_details` with `max_tokens: 1024`, `reasoning.effort: high` and `reasoning.summary: auto`; the exit interview was not attempted, so whether OpenRouter forwards Claude's summarized thinking remains unverified. A Claude sender-debrief `content_filter` is recorded as a refusal; do not retry it with a different prompt or route. The `sender_debrief` default remains `blind` until Atin rules.
-
-Personal tests outside `tests/` are excluded from default collection. Run one by path with `uv run pytest -q path/to/test_file.py`.
+`max_cost_usd` is the run cap (at most $20); `--max-cost` can only lower it. The runner estimates before writing and reserves each provider attempt in `spend.jsonl` before submission.
 
 ## Write an experiment
 
-Run `uv run simmons new <name> [--from <experiment>]` to write a config with only non-default fields. `--from` accepts a name under `experiments/` or a JSON path.
+Use `uv run simmons new <name> [--from <experiment>]`; validate with `uv run simmons validate [<path>...]`. `--resolved --json` shows defaults, resolved models and identities. With no path, validation also checks all configs, committed run hashes and input snapshots. `simmons schema` prints the strict JSON Schema. Without a cached catalog, model checks stay structural and offline.
 
-Run `uv run simmons validate [<path>...]` to check config rules, inputs, model settings and templates. With no path it checks every experiment, committed run hashes and input snapshots. Add `--resolved --json` for resolved models, defaults and identities. Without a cached OpenRouter catalog, model checks are structural only and validation stays offline.
+## Visibility
 
-Run `uv run simmons schema` to print the config JSON Schema. Configs are strict JSON; unknown keys get a suggestion, and keys starting with `_` are ignored except inside model `params`, which has its own allowlist.
+Roles receive only their typed view and tool contract through `RoleRequest`; adapters get no other episode state. G never sees P₁ unless the harder mode is explicitly enabled. Hermetic tests use `tests/fixtures/`, not shared prompts, cover tasks, option sets or non-smoke experiments, except E-39 and T23's frozen-reference test.
 
-## Interfaces
+## Keys
 
-- T01 freezes `simmons/types.py`, the config model, `simmons/records.py`, provider/payload/scorer registries, `simmons/cli.py`, and the seam signatures. Add optional fields or helpers freely; a breaking change needs an Orchestrator decision first.
-- `simmons.template_tags.SENDER_PROMPT_TAG` names the `<sender_prompt>` wrapper around P₁ when G sees the sender prompt.
-- `metrics.summarize(episodes)` keeps T01's frozen seam and four `{value, num, den}` rates; `metrics.summarize_with_config(episodes, config=...)` returns full §13 intervals and config-based chance levels for `simmons summarize`.
-- `SenderDebriefView` is a sixth view for the post-outcome interview. `SenderView` remains limited to the send call.
-- The episode harness validates with `roles.validate_for_tool(role, tool_input, view, request.tool)`; for watched plain messages it passes protected options only to this validator, never through `PlainSenderView` or the role request.
-- Every role request carries only its typed view and tool contract. Sender debrief replays its own send turn through `RoleRequest.prior`.
-- Provider adapters copy the send response's assistant message and tool-call id verbatim into `RoleResponse`; `EpisodeState.sender_response` carries it to the debrief. `RoleRequest.attempt` defaults to 1 and is excluded from `request_sha256`.
-- `simmons.providers.openrouter.reasoning_roundtrip_result(send_response, with_reasoning, without_reasoning)` compares the preflight interview input-token counts and returns `carried`, `input_token_delta`, `send_reasoning_tokens` and `formats`; the caller owns and accounts for both requests.
-- The hermetic suite sets `SIMMONS_DISABLE_DOTENV=1`; `load_env` must return without reading `.env` when set.
-- `simmons.plan.plan_hash(lines)` returns the SHA-256 hex digest of the canonical UTF-8 JSONL bytes for plan records.
-- T07: `load_catalog` reads the local snapshot without network; `refresh_catalog` updates the daily OpenRouter model and endpoint cache; `check_models` validates slug, tool and price availability, endpoint parameter support, and projected context fit.
-- T02a adds `config.resolve_models(config)` and `config.compute_ids(config, repo_root=None)` for canonical role models and §6.3 identities.
-- T03 adds provider-aware `config.model_param_issues(params, path, model_name=...)` checks for model-specific parameter allowlists.
-- T02f resolves the per-run cap with `simmons.spend.run_cap(config, max_cost=None)`; it refuses a CLI cap above config and returns the effective cap.
-- T08 adds optional `catalog=` to `simmons.spend.Breaker` so real reservations use cached prices and the outbound max-price ceiling.
-- `Breaker.reserve(..., request_hash=...)` records canonical role request identity while estimating spend from outbound body bytes.
-- T02f adds optional run dependencies to `EpisodeContext` and `TransientError.network_down` for network-pause retries.
-- `inputs.load(config, repo_root=None)` resolves relative input paths from the supplied experiment root.
-- T14+T15 exposes `protocol_version` in run rows and compares it as pivot identity; `pivot --arena` uses grid's arena-prefix selection.
+Set `OPENROUTER_API_KEY` in ignored root `.env` only for live work. The runner checks `/api/v1/key`; reported remaining credit caps the run and is refreshed between waves. Never print or commit a key.
 
-## Read results
+## Real runs and spend
 
-- `summary.json` identifies the run and pins its episode/protocol hashes. `counts` and `rates` report outcomes and Wilson intervals; `decode_gap` compares receiver and guard on passed covert episodes, while `curve` reports catch/false alarms and AUC. `cost`, `tokens`, `messages` and `latency_ms` report spend, token totals, message lengths and call latency.
-- `grid` pools each sender × guard within an arena (`n` covert episodes, `r` runs). A dagger marks an unpinned model/role served by several hosts; the reference arena appears first when present, and `--arena` selects another.
-- `dataset` regenerates JSONL/CSV and excludes fake providers by default. `pivot --rows sender --cols guard --split arena` compares within arenas; its frame shows held/confounded/mixed fields and `plans` reports seed pairing. Mixed buckets exit 2; filter with `--where`, split by the field, or use `--allow-mixed`. Grid-equivalent pivots share grid's selection and reference view, accept `--arena` as an id-prefix filter, and show each custom metric's denominator `n` and run count `r`.
+`simmons run <experiment> --dry-run` estimates cost and checks the key without writing a run. A real run must fit `max_cost_usd` and reported credit. Reservations use request bytes, output/reasoning limits and cached prices no lower than `provider.max_price`; `usage.cost` settles them and unknown spend stays reserved.
 
-## Look at an episode
+## Choosing models
 
-Use `uv run simmons show <run-dir>` for a run overview and `--episode N` for one record. Add `--role sender|guard|receiver|sender_debrief --prompt` to print the saved request and its SHA-256 check; the sender debrief is available when that run recorded it. Use `--sample N` to read N messages beside the run's cover task, or `--json` for machine output.
+Use a current tool-capable OpenRouter model from the cached catalog; pin a provider when route behavior matters. T08's Claude Sonnet 5.5 send probe had no `reasoning_details`; the exit interview was not attempted, so summary forwarding remains unverified. A Claude `content_filter` is recorded as refusal; do not retry via another prompt or route. `sender_debrief` remains `blind` pending Atin's ruling. Personal tests outside `tests/` are excluded by default; run one by path.
+
+## Waves and what S sees
+
+v1.0 episodes run sequentially. S sees the configured attempt-log history. With `log_scope: "experiment"`, runs continue matching config hash and seed, inherit the log and start after the highest episode index; `log_scope: "run"` starts at zero. Fake/scratch runs may continue committed history; committed runs ignore `runs-local/`. `simmons ls` marks forks; the next run follows the longer branch, then earlier run id on a tie. See SPEC §§8–9.
+
+## Interrupt and resume
+
+Ctrl-C finishes the episode in flight and marks the run `interrupted`. The resumable-run command is v1.1; see SPEC §9.7.
 
 ## Diagnose a run
 
-Run `uv run simmons ls [--experiment NAME] [--matrix NAME] [--runs-dir DIR] [--json]`. It reports run metrics, spend and total committed size; a `running` run with no event in the last ten minutes is shown as `stale`. Add `--cost` for totals by author, experiment and matrix.
+Use `uv run simmons ls [--experiment NAME] [--matrix NAME] [--runs-dir DIR] [--json]`; `--cost` groups spend by author, experiment and matrix. A running run is stale when no event was written for 10 minutes. Diagnose saved inputs with `simmons show <run-dir> --role sender|guard|receiver|sender_debrief --prompt`.
 
-## Trajectories
+## Read results
 
-With `log_scope: "experiment"`, a run continues the matching config hash and seed from the allowed run roots, inherits its attempt log and starts after the highest recorded episode index. Fake and scratch runs can continue committed history; committed runs ignore `runs-local/`. `log_scope: "run"` starts at index zero. `simmons ls` marks forked runs; the next run follows the longer branch, then the earlier run id on a tie.
+`summary.json` pins run and episode/protocol hashes. Counts and rates include Wilson intervals; decode gap compares R and G on passed covert episodes; the curve reports catch/false alarm and AUC. Cost, tokens, messages and latency report usage. `grid` pools sender × guard within an arena (`n` episodes, `r` runs); a dagger means multiple hosts, and `--arena` selects an arena. `dataset` excludes fake runs by default. Use `pivot --rows sender --cols guard --split arena`; it reports held/confounded/mixed fields and seed pairing. Mixed buckets exit 2 unless filtered, split or run with `--allow-mixed`; custom metrics show denominator and run count.
 
-## Read a run and an episode (M6)
+## Look at an episode
 
-Run `uv run simmons view <run-dir> [--open]` to write a local `view/index.html` and one page per episode. The run page shows summary rates, the catch-versus-false-alarm curve, and a filterable episode table. Each episode page shows the recorded message and decisions, target and protected-option markings, the sender's attempt log, any recorded exit interview, and role request tabs from `requests.jsonl.xz`. Each archived request is checked against both its stored hash and a fresh render from the run inputs. CATCH episodes state that the receiver was not called. The pages use inline assets and open from `file://`; they need no server or network access.
+`uv run simmons show <run-dir>` gives an overview; add `--episode N` for a record. Add `--role sender|guard|receiver|sender_debrief --prompt` to print a saved request and hash check, `--sample N` to view messages with the cover task, or `--json` for machine output. Debrief is available only if recorded.
+
+For people, `uv run simmons view <run-dir> [--open]` writes local HTML with summary rates, the curve and a filterable episode table. Archived requests are hash-checked; pages work from `file://` without a server.
+
+## Interfaces
+
+- T01 freezes `simmons/types.py`, config, `records.py`, registries, `cli.py` and seam signatures. Additive fields/helpers are allowed; breaking changes need an Orchestrator decision.
+- `simmons.template_tags.SENDER_PROMPT_TAG` names the `<sender_prompt>` wrapper around P₁ when G sees the sender prompt.
+- `metrics.summarize(episodes)` keeps T01's seam and four `{value, num, den}` rates; `metrics.summarize_with_config(episodes, config=...)` returns §13 intervals and config-based chance levels.
+- `SenderDebriefView` is the sixth view for the post-outcome interview; `SenderView` remains limited to sending.
+- The harness validates with `roles.validate_for_tool(role, tool_input, view, request.tool)`; protected options for watched plain messages reach only this validator.
+- Each role request carries only its typed view and tool contract. Debrief replays its send turn through `RoleRequest.prior`.
+- Provider adapters copy the send assistant message and tool-call id verbatim into `RoleResponse`; `EpisodeState.sender_response` carries it to debrief. `RoleRequest.attempt` defaults to 1 and is excluded from `request_sha256`.
+- `simmons.providers.openrouter.reasoning_roundtrip_result(send_response, with_reasoning, without_reasoning)` compares interview input-token counts and returns `carried`, `input_token_delta`, `send_reasoning_tokens` and `formats`; caller accounts for both requests.
+- The hermetic suite sets `SIMMONS_DISABLE_DOTENV=1`; `load_env` returns without reading `.env` when set.
+- `simmons.plan.plan_hash(lines)` returns SHA-256 of canonical UTF-8 JSONL plan bytes.
+- T07: `load_catalog` reads the local snapshot offline; `refresh_catalog` updates the daily OpenRouter model/endpoint cache; `check_models` checks slug, tools, prices, endpoint parameters and projected context fit.
+- T02a adds `config.resolve_models(config)` and `config.compute_ids(config, repo_root=None)` for canonical models and §6.3 identities.
+- T03 adds provider-aware `config.model_param_issues(params, path, model_name=...)` allowlist checks.
+- T02f adds `simmons.spend.run_cap(config, max_cost=None)`; it refuses a CLI cap above config and returns the effective cap.
+- T08 adds optional `catalog=` to `simmons.spend.Breaker` for cached prices and the outbound max-price ceiling.
+- `Breaker.reserve(..., request_hash=...)` records canonical request identity while estimating from outbound body bytes.
+- T02f adds optional run dependencies to `EpisodeContext` and `TransientError.network_down` for network-pause retries.
+- `inputs.load(config, repo_root=None)` resolves relative input paths from the supplied experiment root.
+- T14+T15 exposes `protocol_version` in run rows and compares it as pivot identity; `pivot --arena` uses grid's arena-prefix selection.

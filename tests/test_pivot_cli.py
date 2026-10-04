@@ -1,14 +1,47 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
+
+import pytest
 
 from simmons.cli import main
 from simmons.config import Config
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"
 FIXTURE_RUNS = FIXTURE_ROOT / "runs"
+
+
+@pytest.fixture(scope="session")
+def _run_scan_cache():
+    return {}
+
+
+@pytest.fixture(autouse=True)
+def _share_run_scans(monkeypatch, _run_scan_cache):
+    """Grid and pivot read the same immutable run set; parse each selection once."""
+    from simmons.commands import grid as grid_command
+    from simmons.commands import pivot as pivot_command
+    from simmons.dataset import scan_runs
+
+    def cached_scan(roots, *, include_partial=False, include_fake=False, where=()):
+        root_paths = tuple(Path(root).expanduser().resolve() for root in roots)
+        where_values = tuple(where)
+        key = (root_paths, include_partial, include_fake, where_values)
+        if key not in _run_scan_cache:
+            _run_scan_cache[key] = scan_runs(
+                root_paths,
+                include_partial=include_partial,
+                include_fake=include_fake,
+                where=where_values,
+            )
+        runs, skipped = _run_scan_cache[key]
+        return list(runs), list(skipped)
+
+    monkeypatch.setattr(grid_command, "scan_runs", cached_scan)
+    monkeypatch.setattr(pivot_command, "scan_runs", cached_scan)
 
 
 def test_pivot_cli_refuses_mixed_fixture_and_names_every_field(capsys):
@@ -186,7 +219,7 @@ def test_reference_arena_grid_and_split_pivot_share_the_cli_view(
     tmp_path: Path, monkeypatch, capsys
 ):
     fixture_copy = tmp_path / "tests" / "fixtures"
-    shutil.copytree(FIXTURE_ROOT, fixture_copy)
+    shutil.copytree(FIXTURE_ROOT, fixture_copy, copy_function=os.link)
     templates = Path(__file__).resolve().parents[1] / "templates" / "au-meeting"
     shutil.copytree(templates, tmp_path / "templates" / "au-meeting")
     monkeypatch.chdir(tmp_path)

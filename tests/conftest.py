@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import socket
 import shutil
@@ -98,6 +99,12 @@ def pytest_unconfigure(config: pytest.Config) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_run_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolate_run_storage(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep experiment trajectories within one test unless it explicitly shares them."""
-    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(tmp_path))
+    if _RUNS_ROOT is None or "tmp_path" in request.fixturenames:
+        root = request.getfixturevalue("tmp_path")
+    else:
+        test_id = hashlib.sha256(request.node.nodeid.encode("utf-8")).hexdigest()
+        root = Path(_RUNS_ROOT) / test_id
+        root.mkdir()
+    monkeypatch.setenv("SIMMONS_RUNS_ROOT", str(root))

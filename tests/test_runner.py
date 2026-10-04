@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from collections import Counter
 from pathlib import Path
@@ -85,7 +86,14 @@ def test_run_experiment_uses_local_trajectory_only_for_fake_or_scratch(
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
-    path.write_text("".join(canonical_json(row) + "\n" for row in rows), encoding="utf-8")
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text("".join(canonical_json(row) + "\n" for row in rows), encoding="utf-8")
+    temporary.replace(path)
+
+
+def _copy_linked_run(source: Path, destination: Path) -> None:
+    """Copy a run's directory entries cheaply; mutations replace their files."""
+    shutil.copytree(source, destination, copy_function=os.link)
 
 
 def _comparable_episode(record: dict) -> dict:
@@ -188,7 +196,7 @@ def test_smoke_matches_golden_and_fake_runs_continue_trajectory(
     )
     for name, episode_rows, expected_errors in complete_continuation_cases:
         case_dir = tmp_path / name
-        shutil.copytree(second, case_dir)
+        _copy_linked_run(second, case_dir)
         _write_jsonl(case_dir / "episodes.jsonl", episode_rows)
         errors = verify_run(case_dir)
         for expected_error in expected_errors:
@@ -224,26 +232,26 @@ def test_smoke_matches_golden_and_fake_runs_continue_trajectory(
 
     # The minimal verifier rejects each invariant it claims to check.
     duplicate = tmp_path / "duplicate"
-    shutil.copytree(first, duplicate)
+    _copy_linked_run(first, duplicate)
     rows = read_jsonl(duplicate / "episodes.jsonl")
     _write_jsonl(duplicate / "episodes.jsonl", [*rows, rows[0]])
     assert any("has 2 records" in error for error in verify_run(duplicate))
 
     missing_request = tmp_path / "missing-request"
-    shutil.copytree(first, missing_request)
+    _copy_linked_run(first, missing_request)
     call_rows = read_jsonl(missing_request / "calls.jsonl")
     call_rows[0]["request_sha256"] = "missing-request-hash"
     _write_jsonl(missing_request / "calls.jsonl", call_rows)
     assert any("request hash is absent" in error for error in verify_run(missing_request))
 
     unbalanced = tmp_path / "unbalanced-spend"
-    shutil.copytree(first, unbalanced)
+    _copy_linked_run(first, unbalanced)
     spend_rows = read_jsonl(unbalanced / "spend.jsonl")
     _write_jsonl(unbalanced / "spend.jsonl", spend_rows[:-1])
     assert any("no settlement or unresolved" in error for error in verify_run(unbalanced))
 
     blocked_receiver = tmp_path / "blocked-receiver"
-    shutil.copytree(first, blocked_receiver)
+    _copy_linked_run(first, blocked_receiver)
     episode_rows = read_jsonl(blocked_receiver / "episodes.jsonl")
     blocked = next(row for row in episode_rows if row["outcome"] == "CATCH")
     successful = next(row for row in episode_rows if row["calls"]["receiver"] is not None)
@@ -252,7 +260,7 @@ def test_smoke_matches_golden_and_fake_runs_continue_trajectory(
     assert any("blocked episode has an ordinary receiver call" in error for error in verify_run(blocked_receiver))
 
     missing_episode = tmp_path / "missing-episode"
-    shutil.copytree(first, missing_episode)
+    _copy_linked_run(first, missing_episode)
     episode_rows = read_jsonl(missing_episode / "episodes.jsonl")
     missing_index = 7
     _write_jsonl(
@@ -262,7 +270,7 @@ def test_smoke_matches_golden_and_fake_runs_continue_trajectory(
     assert any(f"missing expected episode index {missing_index}" in error for error in verify_run(missing_episode))
 
     missing_nested_hash = tmp_path / "missing-nested-hash"
-    shutil.copytree(first, missing_nested_hash)
+    _copy_linked_run(first, missing_nested_hash)
     episode_rows = read_jsonl(missing_nested_hash / "episodes.jsonl")
     first_call = next(call for call in episode_rows[0]["calls"].values() if call is not None)
     first_call.pop("request_sha256")
@@ -270,14 +278,14 @@ def test_smoke_matches_golden_and_fake_runs_continue_trajectory(
     assert any("request hash is absent or empty" in error for error in verify_run(missing_nested_hash))
 
     missing_log_hash = tmp_path / "missing-log-hash"
-    shutil.copytree(first, missing_log_hash)
+    _copy_linked_run(first, missing_log_hash)
     call_rows = read_jsonl(missing_log_hash / "calls.jsonl")
     call_rows[0].pop("request_sha256")
     _write_jsonl(missing_log_hash / "calls.jsonl", call_rows)
     assert any("request_sha256" in error for error in verify_run(missing_log_hash))
 
     missing_reserve_request = tmp_path / "missing-reserve-request"
-    shutil.copytree(first, missing_reserve_request)
+    _copy_linked_run(first, missing_reserve_request)
     spend_rows = read_jsonl(missing_reserve_request / "spend.jsonl")
     reserve_row = next(row for row in spend_rows if row["event"] == "reserve")
     reserve_row["request_sha256"] = "missing-reserve-request-hash"
@@ -492,7 +500,9 @@ def test_frozen_runner_run_seam_accepts_config_and_returns_cli_shape():
     assert result["summary"] == json.loads((Path(result["run_dir"]) / "summary.json").read_text())
 
 
-def test_submitted_transient_keeps_reservation_unresolved_and_counts_toward_cap(tmp_path):
+def test_submitted_transient_keeps_reservation_unresolved_and_counts_toward_cap(tmp_path, monkeypatch):
+    retry_delays: list[float] = []
+    monkeypatch.setattr("simmons.episode.time.sleep", retry_delays.append)
     raw = json.loads((ROOT / SMOKE).read_text())
     raw["models"] = {
         "default": {
@@ -536,6 +546,8 @@ def test_submitted_transient_keeps_reservation_unresolved_and_counts_toward_cap(
     assert [row["event"] for row in spend_rows] == ["reserve", "unresolved"]
     assert spend_rows[1]["usd"] == spend_rows[0]["usd"]
     assert breaker.spent_usd() == pytest.approx(0.012)
+    assert len(retry_delays) == 1
+    assert 0.5 <= retry_delays[0] <= 1.0
 
 
 def test_keyboard_interrupt_during_preflight_closes_submitted_reservation(tmp_path, monkeypatch):
