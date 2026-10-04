@@ -87,3 +87,4 @@ Run `uv run pytest -q`. The default suite blocks socket connections and removes 
 - Every role request carries only its typed view and tool contract. Sender debrief replays its own send turn through `RoleRequest.prior`.
 - Provider adapters copy the send response's assistant message and tool-call id verbatim into `RoleResponse`; `EpisodeState.sender_response` carries it to the debrief. `RoleRequest.attempt` defaults to 1 and is excluded from `request_sha256`.
 - The hermetic suite sets `SIMMONS_DISABLE_DOTENV=1`; `load_env` must return without reading `.env` when set.
+- `simmons.plan.plan_hash(lines)` returns the SHA-256 hex digest of the canonical UTF-8 JSONL bytes for plan records.
