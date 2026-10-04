@@ -236,6 +236,7 @@ def test_udp_send_is_denied():
     for key in secret_names:
         env[key] = "inert-hermetic-sentinel"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     try:
         result = subprocess.run(
             [sys.executable, "-B", "-m", "pytest", "-q", str(probe.relative_to(project_root))],

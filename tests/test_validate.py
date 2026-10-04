@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import io
 import json
+import os
 import shutil
 import subprocess
 import sys
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from simmons.cli import main
 import simmons.commands.new as new_command
 import simmons.commands.validate as validate_command
 from simmons.config import Config, compute_ids
@@ -177,7 +181,7 @@ def test_no_argument_validate_reports_every_experiment_and_repo_errors_as_json(t
 
 
 def test_new_from_smoke_fixture_validates_and_writes_a_real_source_config(tmp_path, monkeypatch):
-    shutil.copytree(ASSETS, tmp_path / "tests" / "fixtures" / "bad" / "assets")
+    shutil.copytree(ASSETS, tmp_path / "tests" / "fixtures" / "bad" / "assets", copy_function=os.link)
     experiments = tmp_path / "experiments"
     experiments.mkdir()
     shutil.copyfile(ROOT / "tests" / "fixtures" / "bad" / "assets" / "experiments" / "smoke.json", experiments / "smoke.json")
@@ -294,12 +298,16 @@ def _write_run_record(run_dir: Path, record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _cli(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "simmons.cli", *args],
-        cwd=root,
-        capture_output=True,
-        text=True,
-    )
+    command = [sys.executable, "-m", "simmons.cli", *args]
+    stdout, stderr = io.StringIO(), io.StringIO()
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(root)
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            returncode = main(list(args))
+    finally:
+        os.chdir(previous_cwd)
+    return subprocess.CompletedProcess(command, returncode, stdout.getvalue(), stderr.getvalue())
 
 
 class _OptionScorer:
