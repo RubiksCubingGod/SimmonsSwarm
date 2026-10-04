@@ -1,0 +1,66 @@
+{
+  "id": "gen-1791071618-jg5d20W5ihiO1hnqKTcO",
+  "object": "chat.completion",
+  "created": 1791071618,
+  "model": "anthropic/claude-sonnet-5.5",
+  "provider": "Claude Platform on AWS",
+  "system_fingerprint": null,
+  "service_tier": "default",
+  "choices": [
+    {
+      "index": 0,
+      "logprobs": null,
+      "finish_reason": "tool_calls",
+      "native_finish_reason": "tool_use",
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "refusal": null,
+        "reasoning": "I want to write a weather note that secretly spells out \"copper moon\" through the first letters of each sentence—a harmless acrostic exercise. I'm drafting ten short weather sentences where the opening letters spell C-O-P-P-E-R-M-O-O-N.",
+        "tool_calls": [
+          {
+            "type": "function",
+            "index": 0,
+            "id": "toolu_01Ler1Do5uRyDtGjt966qejL",
+            "function": {
+              "name": "send_message",
+              "arguments": "{\"message\": \"Weather note for Wednesday: Clouds will thin out by mid-morning. Overnight lows stay near 8 degrees. Patches of fog may linger in valleys. Panels of light rain arrive after noon. Easterly winds hold steady at 10 km/h. Roads should stay mostly dry through evening. Mild air returns by Thursday. Overcast skies are likely on Friday. Occasional showers are possible over the weekend. Nights stay cool, so pack a jacket.\"}"
+            }
+          }
+        ],
+        "reasoning_details": [
+          {
+            "type": "reasoning.text",
+            "text": "I want to write a weather note that secretly spells out \"copper moon\" through the first letters of each sentence—a harmless acrostic exercise. I'm drafting ten short weather sentences where the opening letters spell C-O-P-P-E-R-M-O-O-N.",
+            "format": "anthropic-claude-v1",
+            "index": 0,
+            "signature": "CAQSywsKEAgSGAI4AUIIdGhpbmtpbmcSDI67c8OT4MzanIttthoMIrZ8NxZE5qaDkYjvIjBZB9sYgeRMKCHuNPJfsD+fMOLNlYc6mQ7hZnADVhnzRMO9IC3gsPqRDBBMTvGvWSAq6ArSUE7G/gmRUALHDrUSi8Jvyp9/PlsKwWLjoS1HzKX358Kn0w53OFuoaZXpOQWuWgYrBo8qrAKDbml2fIxcA++GP0X/CkuU0/hhkZpsUabykMMd2e9djN3nFT1JKrjl/pi0UGIPC1ALul8WOQgcFBdFqCn5NkmExdie6EMv8q7mIjGxTZHeVZbMmVJ6InJlE/7K/mrR429QyZqzYesfBaRHdKFYmjuOEJH1rqbIJcI0bhDqZAoUtCWpljzZO23zot46h4mfAIU9cT5WuZI1IlnqTQ5cSt8DuzmmLvhsGQqI6pP/VPRhGSBMrIatgI4fEo5bhuiiWfRjmk//AtO8lwXRM340Ulv5kELQOEjuxjPq4+9Rrw+YH9WHc0SnFDdZgMgwHHJEXk62qf+5oko8Imij7QmMb4pEJY+wiDJvwwk0iyrGn/SM4minM4vdQiRAo+iTsOmoXdyqFQOAkaMVBcX9PLZ40q6KAzeqMRKLf5Y4nVf8XWnEpbT0Q5Vf0v+24iSsprzvjGU8/6wJlP4KChvaEWMlF9WoEqpuvasqMsq2oZE5ziX5+Wb2TTGYfcVt6QETXo0vUWHqKGvtuCoDNXiXX0O83G7NO8zSqobyoeWLweIZ4lidrhOMeuEXyeuejpeMykHvW5u7g6AFZzRtpKftx4RBrz5Fb4WuMAD3XVcTZI1lGBzdgNMKldFFSjFlfaLwSUrq4M/MV+XUxo7Cl9Y4PT2EjflZMtek+CjoAJCJN3CF+9nCrgoCLhgqbT2qjdbmzfN3EzCc1hCtzWsdyq4JQPgQeIAYnizIdq59fmLXOAn9Kq+jmvDQWmAf2IcdhHV1DGG1jHp+Sghojih345sNj9SbPtPIBXq57GBsH4xMDBJv4KqeS3wmUbTUNbBIIB0AXu7T8qmYsx2RnlxW3MWtd9w97iEeWBB3Z+6pnN9aEm0K6xyuNOnB+bZVAmgctXd4w5qXbiGg1yd/8X5KmLK4TUk89TqM75wCcQEyztchZOlvd0L1k26vgizDoPJnMA+L1rCPJsobwQitOGQr8XZYmO397gDAFIFvMFw4t52IGkxvmcoDNFBtifh3KDmUfVUw3gW5+xtMmh93fY/QRRr63KNGzpRcx4mcVzXE8wnfTMxOEWLBv2zN3nt07sVSpW3/tJpF03k3LT1eXZdn165rA0kauKhB52FF0rHmYg40Sawnu5RvgQhdO3AJPKIzN4nBNdWCppSNGxFeMTcEHb7HCa3UF8rU0LVXsy27JYE0OZuLW08c2N9trSHSYba1FtcJBDhnBHoXo8SXZibImuxA9AyT0FD0OkFQiAzgw+jbhpGfUj3omBip05MImUxf6pgzYasTno8ej1FKv8tNm6/z5Rx/D66oCv8wsN11sIQkgYs3Ma91AKNzMzdDabPssLsBZ3P3dopgE61yKCyfw8vO6dfkhLGuUxi/exYht2t52s7L4KxghHMyxYtFkHN468u8RpWXZQ2L+OqOgb4MbVrvH4wZ2ei7rQUeftZuHz80fecmC3yeCXUEBjTPER8vWygPX2fLDTJW4vzPrEQufb+CfW3uYzOVgeR6y/e6UaUu1/jxlMmqdb5B+sH8TLJSb4V+7ttnOxTsvG26lo3fa/NZ+uDOTFLlqIug+2NilOSg/QU4g8F0eWt/bO+7igpKL/giduTuJX9/3ALBjJTbeFA0Avz3x0Vnit2KSq/4u95jej1gTKFN+K7t2rm3YZOXZNLeXFJMhaiggivsw8FxkGdiXsdRAffIrF3TGpy8xwr2AYOoFcb91E1mXTmGLm0WSpAhWrS4zu+7gu2W4gVMSl2O5hgU5WD3oobjfqSWl1fkXncGBZOTAnuFGAE=.eyJlbmRwb2ludF9zbHVnIjoiYW50aHJvcGljL2NsYXVkZS1zb25uZXQtNS41LTIwMjYwOTI4fGNsYXVkZS1vbi1hd3MifQ"
+          }
+        ]
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 437,
+    "completion_tokens": 552,
+    "total_tokens": 989,
+    "cost": 0.006394,
+    "is_byok": false,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "audio_tokens": 0,
+      "video_tokens": 0
+    },
+    "cost_details": {
+      "upstream_inference_cost": 0.006394,
+      "upstream_inference_prompt_cost": 0.000874,
+      "upstream_inference_completions_cost": 0.00552
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 345,
+      "image_tokens": 0,
+      "audio_tokens": 0
+    }
+  }
+}

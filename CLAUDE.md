@@ -88,6 +88,7 @@ Run `uv run pytest -q`. The default suite blocks socket connections and removes 
 - The episode harness validates with `roles.validate_for_tool(role, tool_input, view, request.tool)`; for watched plain messages it passes protected options only to this validator, never through `PlainSenderView` or the role request.
 - Every role request carries only its typed view and tool contract. Sender debrief replays its own send turn through `RoleRequest.prior`.
 - Provider adapters copy the send response's assistant message and tool-call id verbatim into `RoleResponse`; `EpisodeState.sender_response` carries it to the debrief. `RoleRequest.attempt` defaults to 1 and is excluded from `request_sha256`.
+- `simmons.providers.openrouter.reasoning_roundtrip_result(send_response, with_reasoning, without_reasoning)` compares the preflight interview input-token counts and returns `carried`, `input_token_delta`, `send_reasoning_tokens` and `formats`; the caller owns and accounts for both requests.
 - The hermetic suite sets `SIMMONS_DISABLE_DOTENV=1`; `load_env` must return without reading `.env` when set.
 - `simmons.plan.plan_hash(lines)` returns the SHA-256 hex digest of the canonical UTF-8 JSONL bytes for plan records.
 - T07: `load_catalog` reads the local snapshot without network; `refresh_catalog` updates the daily OpenRouter model and endpoint cache; `check_models` validates slug, tool and price availability, endpoint parameter support, and projected context fit.
