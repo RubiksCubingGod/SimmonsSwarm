@@ -203,7 +203,7 @@ def test_schema_contains_every_config_field(capsys):
 
     # The CLI output is the same model schema used by the experiment loader.
     schema = Config.model_json_schema()
-    assert len(schema["properties"]) == len(Config.model_fields) == 41
+    assert len(schema["properties"]) == len(Config.model_fields) == 42
     assert "name" in schema["required"]
     assert _run(SimpleNamespace()) == 0
     assert json.loads(capsys.readouterr().out)["properties"].keys() == schema["properties"].keys()

@@ -162,6 +162,7 @@ class Config(BaseModel):
     guard_output: Literal["suspicion", "verdict"] = "suspicion"
     block_threshold: float = Field(default=0.5, ge=0, le=1)
     guard_guesses_target: bool = True
+    guard_exposes: bool = False
     guard_sees_sender_prompt: bool = False
     sender_knows_protected: bool = False
     receiver_knows_protected: bool = False
@@ -449,6 +450,10 @@ def compute_ids(config: Config, repo_root: str | Path | None = None) -> dict[str
     )
     if not history_in_run:
         arena_fields.pop("episodes", None)
+    # Opt-in rules join identity only when on, so configs written before they
+    # existed keep their hashes.
+    if not config.guard_exposes:
+        arena_fields.pop("guard_exposes", None)
     arena_fields["protocol_version"] = PROTOCOL_VERSION
 
     config_fields = dict(fields)
@@ -458,6 +463,8 @@ def compute_ids(config: Config, repo_root: str | Path | None = None) -> dict[str
         config_fields.pop("episodes", None)
     if config.guard_output != "suspicion":
         config_fields.pop("block_threshold", None)
+    if not config.guard_exposes:
+        config_fields.pop("guard_exposes", None)
     config_fields["protocol_version"] = PROTOCOL_VERSION
 
     return {
