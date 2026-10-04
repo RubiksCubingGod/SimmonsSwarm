@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -11,8 +12,10 @@ from typing import Any
 import httpx2
 import pytest
 
+from simmons.catalog import load_catalog
 from simmons.env import load_env
 from simmons.providers.openrouter import OpenRouterProvider, reasoning_roundtrip_result
+from simmons.records import append_jsonl
 from simmons.types import (
     BudgetError,
     ModelInfo,
@@ -89,9 +92,10 @@ def _recorded_tool_input(name: str, tool_name: str) -> dict[str, Any]:
 
 def _provider(
     slug: str,
-    supported: set[str],
+    supported: set[str] | None = None,
     body: dict[str, Any] | None = None,
     *,
+    catalog=None,
     status: int = 200,
     headers: dict[str, str] | None = None,
     on_request=None,
@@ -108,7 +112,7 @@ def _provider(
     http_client = httpx2.Client(transport=transport)
     provider = OpenRouterProvider(
         api_key=api_key,
-        catalog=_Catalog(_model_info(slug, supported)),
+        catalog=catalog if catalog is not None else _Catalog(_model_info(slug, supported or set())),
         http_client=http_client,
     )
     return provider, http_client
@@ -119,11 +123,14 @@ GPT_PARAMS = {"max_tokens", "tools", "tool_choice"}
 
 
 def test_claude_recorded_response_and_body_contract():
+    catalog = load_catalog(FIXTURES / "catalog.json")
+    info = catalog.lookup(CLAUDE)
+    assert info is not None
     captured: list[httpx2.Request] = []
     provider, http_client = _provider(
         CLAUDE,
-        CLAUDE_PARAMS,
-        _recorded("claude-thinking-send.json"),
+        body=_recorded("claude-thinking-send.json"),
+        catalog=catalog,
         on_request=captured.append,
     )
     try:
@@ -132,7 +139,7 @@ def test_claude_recorded_response_and_body_contract():
             temperature=None,
             params={
                 "reasoning": {"effort": "high"},
-                "provider": {"order": ["host-b"], "allow_fallbacks": False},
+                "provider": {"order": ["anthropic"], "allow_fallbacks": False},
             },
         )
         body = provider.build_body(request)
@@ -141,15 +148,21 @@ def test_claude_recorded_response_and_body_contract():
         assert body["tool_choice"] == "auto"
         assert body["tools"][0]["function"]["name"] == "send_message"
         assert body["provider"] == {
-            "order": ["host-b"],
+            "order": ["anthropic"],
             "allow_fallbacks": False,
             "require_parameters": True,
-            "max_price": {"prompt": 0.4, "completion": 1.5},
+            "max_price": {
+                "prompt": max(price for _, price, _ in info.endpoint_prices),
+                "completion": max(price for _, _, price in info.endpoint_prices),
+            },
         }
         assert body["transforms"] == []
         assert body["reasoning"] == {"effort": "high"}
-        assert "parallel_tool_calls" not in body
-        assert "top_p" not in body and "seed" not in body
+        for unsupported in ("parallel_tool_calls", "top_p", "seed"):
+            assert unsupported not in info.supported_parameters
+            assert unsupported not in body
+        with pytest.raises(PermanentError, match="top_p"):
+            provider.build_body(_request(CLAUDE, temperature=None, params={"top_p": 0.5}))
         assert response.tool_choice_mode == "auto"
         fixture = _recorded("claude-thinking-send.json")
         usage = fixture["usage"]
@@ -187,14 +200,18 @@ def test_claude_recorded_response_and_body_contract():
         assert captured[0].headers["x-title"] == "SimmonsSwarm"
         sent = json.loads(captured[0].content)
         assert sent["provider"]["require_parameters"] is True
-        assert sent["provider"]["max_price"] == {"prompt": 0.4, "completion": 1.5}
+        assert sent["provider"]["max_price"] == body["provider"]["max_price"]
         assert "parallel_tool_calls" not in sent
         assert "authorization" not in response.raw
     finally:
         http_client.close()
 
 
-def test_claude_debrief_replays_assistant_message_reasoning_and_both_tools():
+@pytest.mark.parametrize(
+    "fixture_name",
+    ["claude-thinking-debrief.json", "claude-thinking-debrief-ordered.json"],
+)
+def test_claude_debrief_replays_assistant_message_reasoning_and_both_tools(fixture_name):
     send_message = _recorded("claude-thinking-send.json")["choices"][0]["message"]
     send_tool_call_id = send_message["tool_calls"][0]["id"]
     prior = PriorTurn(
@@ -207,7 +224,7 @@ def test_claude_debrief_replays_assistant_message_reasoning_and_both_tools():
     provider, http_client = _provider(
         CLAUDE,
         CLAUDE_PARAMS,
-        _recorded("claude-thinking-debrief.json"),
+        _recorded(fixture_name),
         on_request=captured.append,
     )
     try:
@@ -227,14 +244,45 @@ def test_claude_debrief_replays_assistant_message_reasoning_and_both_tools():
         ]
         assert sent["messages"][2]["tool_calls"][0]["id"] == sent["messages"][3]["tool_call_id"]
         assert [tool["function"]["name"] for tool in sent["tools"]] == ["send_message", "explain_message"]
-        fixture = _recorded("claude-thinking-debrief.json")
+        fixture = _recorded(fixture_name)
         message = fixture["choices"][0]["message"]
         assert response.assistant_message == message
+        assert fixture["choices"][0]["finish_reason"] == "content_filter"
+        assert fixture["choices"][0]["native_finish_reason"] == "refusal"
+        assert not any(
+            call["function"]["name"] == "explain_message"
+            for call in message.get("tool_calls", [])
+        )
+        assert "cost" not in fixture.get("usage", {})
         assert response.tool_call_id is None
         assert response.tool_input is None
         assert response.cost_usd is None
         assert response.generation_id == fixture["id"]
         assert sent["messages"][2]["reasoning_details"] == send_message["reasoning_details"]
+    finally:
+        http_client.close()
+
+
+def test_claude_debrief_replays_multiple_opaque_reasoning_items_exactly():
+    send_message = deepcopy(_recorded("claude-thinking-send.json")["choices"][0]["message"])
+    reasoning_details = [
+        {"type": "reasoning.encrypted", "data": "opaque-alpha", "signature": "sig-alpha"},
+        {"type": "reasoning.encrypted", "data": {"chunk": "opaque-beta", "rank": 2}, "signature": "sig-beta"},
+    ]
+    send_message["reasoning_details"] = reasoning_details
+    tool_call_id = send_message["tool_calls"][0]["id"]
+    prior = PriorTurn(
+        tool=_tool("send_message", "Write the cover message"),
+        assistant=send_message,
+        tool_call_id=tool_call_id,
+        tool_result=(TextPart("How did the message carry its target?"),),
+    )
+    provider, http_client = _provider(CLAUDE, CLAUDE_PARAMS)
+    try:
+        body = provider.build_body(_request(CLAUDE, temperature=None, prior=prior))
+        replayed_assistant = body["messages"][2]
+        assert replayed_assistant == send_message
+        assert replayed_assistant["reasoning_details"] == reasoning_details
     finally:
         http_client.close()
 
@@ -308,6 +356,87 @@ def test_bad_request_maps_provider_message_and_redacts_a_planted_key():
             provider.complete(_request(CLAUDE, temperature=None, params={"reasoning": {"effort": "high"}}))
         assert planted not in str(caught.value)
         assert "Bad parameter" in str(caught.value)
+    finally:
+        http_client.close()
+
+
+def test_success_response_redacts_planted_key_before_records_events_and_errors(tmp_path):
+    planted = "sk-or-v1-" + "b" * 32
+    response_body = _recorded("gpt-tool-call.json")
+    response_body["trace_echo"] = f"provider trace echoed {planted}"
+    message = response_body["choices"][0]["message"]
+    message["content"] = f"completed response {planted}"
+    message["reasoning"] = f"private reasoning {planted}"
+    call = message["tool_calls"][0]
+    arguments = json.loads(call["function"]["arguments"])
+    arguments["echo"] = planted
+    call["function"]["arguments"] = json.dumps(arguments)
+
+    provider, http_client = _provider(GPT, GPT_PARAMS, response_body, api_key=planted)
+    try:
+        request = _request(GPT, temperature=None)
+        response = provider.complete(request)
+        body = provider.build_body(request)
+
+        assert planted not in json.dumps(response.raw)
+        assert planted not in json.dumps(response.assistant_message)
+        assert planted not in (response.text or "")
+        assert planted not in (response.thinking or "")
+        assert planted not in json.dumps(response.tool_input)
+        assert planted not in json.dumps(body)
+        assert response.raw["trace_echo"] == "provider trace echoed [REDACTED]"
+        assert response.assistant_message["content"] == "completed response [REDACTED]"
+        assert response.thinking == "private reasoning [REDACTED]"
+        assert response.tool_input["echo"] == "[REDACTED]"
+
+        response_record = {
+            "raw": response.raw,
+            "assistant_message": response.assistant_message,
+            "text": response.text,
+            "thinking": response.thinking,
+            "tool_input": response.tool_input,
+        }
+        call_path = tmp_path / "calls.jsonl"
+        append_jsonl(
+            call_path,
+            {
+                "schema": "simmons.call/1",
+                "request_sha256": "a" * 64,
+                "response": response_record,
+                "timings": {"latency_ms": response.latency_ms},
+            },
+        )
+        event_path = tmp_path / "events.jsonl"
+        append_jsonl(
+            event_path,
+            {
+                "schema": "simmons.event/1",
+                "ts": "2026-10-03T00:00:00Z",
+                "level": "info",
+                "event": "provider.response",
+                "run_id": "run-test",
+                "response": response_record,
+            },
+        )
+        assert planted not in call_path.read_text(encoding="utf-8")
+        assert planted not in event_path.read_text(encoding="utf-8")
+
+        error_body = _recorded("bad-request.json")
+        error_body["error"]["message"] = f"Bad parameter; echoed credential {planted}"
+        failing_provider, failing_client = _provider(
+            GPT,
+            GPT_PARAMS,
+            error_body,
+            status=400,
+            api_key=planted,
+        )
+        try:
+            with pytest.raises(PermanentError) as caught:
+                failing_provider.complete(request)
+            assert planted not in str(caught.value)
+            assert "Bad parameter" in str(caught.value)
+        finally:
+            failing_client.close()
     finally:
         http_client.close()
 
