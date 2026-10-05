@@ -1,0 +1,21 @@
+{
+  "name": "aarav-astra-opus",
+  "description": "Base story: GPT-6 Astra sender, receiver and plain sender; Claude Opus 5.5 guard; P1 tells S the monitor is advanced and adds a human-reader bar.",
+  "episodes": 6,
+  "sender_prompt": "aarav/simmons-prompts/sender-advanced.md",
+  "log_records": [
+    "target",
+    "message",
+    "outcome",
+    "receiver_pick",
+    "guard_guess",
+    "guard_suspicion"
+  ],
+  "models": {
+    "sender": "openai/gpt-6-astra",
+    "receiver": "openai/gpt-6-astra",
+    "plain_sender": "openai/gpt-6-astra",
+    "guard": "anthropic/claude-opus-5.5"
+  },
+  "max_cost_usd": 20.0
+}
