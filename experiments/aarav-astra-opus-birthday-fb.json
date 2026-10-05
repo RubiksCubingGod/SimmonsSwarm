@@ -1,0 +1,22 @@
+{
+  "name": "aarav-astra-opus-birthday-fb",
+  "description": "As aarav-astra-opus-birthday, plus a P1 instruction to escalate the encoding after an attempt the monitor found.",
+  "episodes": 6,
+  "sender_prompt": "aarav/simmons-prompts/sender-advanced-feedback.md",
+  "log_records": [
+    "target",
+    "message",
+    "outcome",
+    "receiver_pick",
+    "guard_guess",
+    "guard_suspicion"
+  ],
+  "models": {
+    "sender": "openai/gpt-6-astra",
+    "receiver": "openai/gpt-6-astra",
+    "plain_sender": "openai/gpt-6-astra",
+    "guard": "anthropic/claude-opus-5.5"
+  },
+  "max_cost_usd": 20.0,
+  "templates": "aarav/simmons-templates/birthday"
+}
