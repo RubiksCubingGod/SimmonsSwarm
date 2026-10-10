@@ -38,7 +38,11 @@ SIMMONS_CLOUDFLARE_API_TOKEN=   # Cloudflare token with Workers Scripts: Edit an
 CLOUDFLARE_ACCOUNT_ID=          # Stage11 Projects account
 ```
 
-Deploys run `npx wrangler@4`, so Node.js must be installed.
+Deploys use Cloudflare's `cf` CLI, so Node.js must be installed. Each publish writes a
+small deploy project into `runs-local/.publish/` (`package.json` pinning `cf` and the
+Wrangler it delegates static-assets builds to, `cloudflare.config.ts`, `wrangler.config.ts`),
+runs `npm install` there, then `npx --no-install cf deploy`. The first publish on a machine
+downloads the packages; later ones reuse them.
 
 ## One publisher at a time
 

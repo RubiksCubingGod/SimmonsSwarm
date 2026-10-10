@@ -101,17 +101,17 @@ def test_publish_refuses_a_directory_outside_the_run_roots(tmp_path, monkeypatch
     assert not (root / "runs-local" / "published.json").exists()
 
 
-def test_wrangler_config_serves_only_the_custom_domain(tmp_path) -> None:
-    config = publish.wrangler_config(publish.Target("simmons.stage11.dev", "simmons-viewer", "abc123"), tmp_path)
+def test_cf_config_serves_only_the_custom_domain() -> None:
+    worker = publish.cf_config(publish.Target("simmons.stage11.dev", "simmons-viewer", "abc123"))["worker"]
 
-    assert config["workers_dev"] is False
-    assert config["preview_urls"] is False
-    assert config["routes"] == [{"pattern": "simmons.stage11.dev", "custom_domain": True}]
-    assert config["assets"]["directory"] == str(tmp_path)
-    assert "main" not in config
+    assert worker["workersDev"] is False
+    assert worker["previewUrls"] is False
+    assert worker["domains"] == ["simmons.stage11.dev"]
+    assert worker["assets"]["notFoundHandling"] == "none"
+    assert "entrypoint" not in worker
 
 
-def test_deploy_passes_the_project_token_to_wrangler(tmp_path) -> None:
+def test_deploy_installs_then_runs_cf_with_the_project_token(tmp_path) -> None:
     site = tmp_path / ".publish" / "site"
     site.mkdir(parents=True)
     build = publish.SiteBuild(site=site, index=site / "index.html", runs=[])
@@ -127,18 +127,30 @@ def test_deploy_passes_the_project_token_to_wrangler(tmp_path) -> None:
     assert calls == []
 
     env = {"SIMMONS_CLOUDFLARE_API_TOKEN": "tok", "CLOUDFLARE_ACCOUNT_ID": "acct", "CLOUDFLARE_API_TOKEN": "other"}
+    (site.parent / "wrangler.json").write_text("{}", encoding="utf-8")
     publish.deploy(build, target, env=env, run=run)
-    argv, kwargs = calls[0]
-    assert argv[-3:] == ["deploy", "--config", str(site.parent / "wrangler.json")]
+    assert [argv[:2] for argv, _ in calls] == [["npm", "install"], ["npx", "--no-install"]]
+    argv, kwargs = calls[1]
+    assert argv[-2:] == ["cf", "deploy"]
+    assert kwargs["cwd"] == site.parent
     assert kwargs["env"]["CLOUDFLARE_API_TOKEN"] == "tok"
     assert kwargs["env"]["CLOUDFLARE_ACCOUNT_ID"] == "acct"
-    written = json.loads((site.parent / "wrangler.json").read_text(encoding="utf-8"))
-    assert written["name"] == "simmons-viewer"
+    assert kwargs["env"]["CF_SEND_TELEMETRY"] == "false"
+    package = json.loads((site.parent / "package.json").read_text(encoding="utf-8"))
+    pins = {"cf": publish.CF_VERSION, "wrangler": publish.WRANGLER_VERSION}
+    assert package["devDependencies"] == pins
+    config = (site.parent / "cloudflare.config.ts").read_text(encoding="utf-8")
+    assert config.startswith("export default ")
+    worker = json.loads(config.removeprefix("export default ").rstrip().rstrip(";"))["worker"]
+    assert worker["name"] == "simmons-viewer"
+    build_config = (site.parent / "wrangler.config.ts").read_text(encoding="utf-8")
+    assert '"assetsDirectory": "site"' in build_config
+    assert not (site.parent / "wrangler.json").exists()
 
     def failing(argv, **kwargs):
         return subprocess.CompletedProcess(argv, 1)
 
-    with pytest.raises(publish.PublishError, match="exited 1"):
+    with pytest.raises(publish.PublishError, match="npm install exited 1"):
         publish.deploy(build, target, env=env, run=failing)
 
 

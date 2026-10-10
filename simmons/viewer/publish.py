@@ -33,7 +33,12 @@ ACCOUNT_ENV = "CLOUDFLARE_ACCOUNT_ID"
 PATH_ENV = "SIMMONS_PUBLISH_PATH"
 LIST_NAME = "published.json"
 STAGING_NAME = ".publish"
-WRANGLER = ("npx", "--yes", "wrangler@4")
+# cf builds static-assets Workers by delegating to Wrangler, so the deploy
+# project declares both. Exact pins: cf is in beta.
+CF_VERSION = "1.0.0-beta.14"
+WRANGLER_VERSION = "4.149.0"
+INSTALL = ("npm", "install", "--no-audit", "--no-fund", "--loglevel=error")
+CF = ("npx", "--no-install", "cf")
 
 _HEADERS = """/*
   X-Robots-Tag: noindex, nofollow
@@ -178,20 +183,43 @@ def build_site(repo_root: Path, scratch_runs: Sequence[str], path: str) -> SiteB
     return SiteBuild(site=site, index=index, runs=list(data["runs"]), skipped=skipped)
 
 
-def wrangler_config(target: Target, site: Path) -> dict[str, Any]:
+def cf_config(target: Target) -> dict[str, Any]:
     """Static assets only, on the custom domain; no workers.dev or preview hostnames."""
     return {
-        "name": target.worker,
-        "compatibility_date": "2026-10-01",
-        "assets": {
-            "directory": str(site),
-            "html_handling": "auto-trailing-slash",
-            "not_found_handling": "none",
-        },
-        "workers_dev": False,
-        "preview_urls": False,
-        "routes": [{"pattern": target.host, "custom_domain": True}],
+        "worker": {
+            "name": target.worker,
+            "compatibilityDate": "2026-10-01",
+            "assets": {"htmlHandling": "auto-trailing-slash", "notFoundHandling": "none"},
+            "workersDev": False,
+            "previewUrls": False,
+            "domains": [target.host],
+        }
     }
+
+
+def write_project(target: Target, site: Path) -> Path:
+    """Write the cf deploy project beside the site and return its directory.
+
+    ``defineConfig`` only adds types, so the configs are plain default exports
+    and need no import resolution. The assets directory belongs to the Wrangler
+    build config, not ``cloudflare.config.ts``.
+    """
+    project = site.parent
+    package = {
+        "name": "simmons-viewer-deploy",
+        "private": True,
+        "type": "module",
+        "devDependencies": {"cf": CF_VERSION, "wrangler": WRANGLER_VERSION},
+    }
+    files = {
+        "package.json": json.dumps(package, indent=2) + "\n",
+        "cloudflare.config.ts": f"export default {json.dumps(cf_config(target), indent=2)};\n",
+        "wrangler.config.ts": f"export default {json.dumps({'assetsDirectory': site.name})};\n",
+    }
+    for name, text in files.items():
+        (project / name).write_text(text, encoding="utf-8")
+    (project / "wrangler.json").unlink(missing_ok=True)  # left by Wrangler-era publishes
+    return project
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
@@ -212,25 +240,21 @@ def deploy(
             f"set {' and '.join(missing)} in the environment or the repo's .env "
             "(see docs/hosted-viewer.md)"
         )
-    config = build.site.parent / "wrangler.json"
-    config.write_text(json.dumps(wrangler_config(target, build.site), indent=2) + "\n", encoding="utf-8")
+    project = write_project(target, build.site)
     child_env = {
         **env,
         "CLOUDFLARE_API_TOKEN": str(token),
         "CLOUDFLARE_ACCOUNT_ID": str(account),
+        "CF_SEND_TELEMETRY": "false",
         "WRANGLER_SEND_METRICS": "false",
     }
-    try:
-        result = run(
-            [*WRANGLER, "deploy", "--config", str(config)],
-            cwd=build.site.parent,
-            env=child_env,
-            text=True,
-        )
-    except FileNotFoundError as exc:
-        raise PublishError("npx not found; install Node.js to deploy") from exc
-    if result.returncode != 0:
-        raise PublishError(f"wrangler deploy exited {result.returncode}")
+    for step, argv in (("npm install", INSTALL), ("cf deploy", (*CF, "deploy"))):
+        try:
+            result = run(list(argv), cwd=project, env=child_env, text=True)
+        except FileNotFoundError as exc:
+            raise PublishError(f"{argv[0]} not found; install Node.js to deploy") from exc
+        if result.returncode != 0:
+            raise PublishError(f"{step} exited {result.returncode}")
 
 
 def _status(url: str, timeout: float) -> int:
@@ -266,11 +290,12 @@ __all__ = [
     "SiteBuild",
     "Target",
     "build_site",
+    "cf_config",
     "check_live",
     "deploy",
     "read_state",
     "scratch_key",
     "target_from_env",
-    "wrangler_config",
+    "write_project",
     "write_state",
 ]
